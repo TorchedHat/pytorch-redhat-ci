@@ -43,8 +43,8 @@ jobs:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     steps:
-      - name: "Throttle: stagger callbacks (wave 4)"
-        run: sleep 40
+      - name: "Throttle: stagger callbacks (110s offset)"
+        run: sleep 110
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
