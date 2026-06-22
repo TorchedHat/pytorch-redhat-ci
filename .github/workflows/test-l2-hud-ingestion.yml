@@ -44,6 +44,9 @@ jobs:
       HEAD_SHA: ${{ github.event.client_payload.payload.pull_request.head.sha || '' }}
       DOWNSTREAM_REPO: ${{ github.repository }}
     steps:
+      - name: "Throttle: stagger callbacks (wave 2)"
+        run: sleep 15
+
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -100,7 +103,6 @@ jobs:
             exit 0
           }
 
-          # Check if our repo appears in results
           MATCH=$(echo "$RESPONSE" | python3 -c "
           import json, sys
           data = json.load(sys.stdin)
