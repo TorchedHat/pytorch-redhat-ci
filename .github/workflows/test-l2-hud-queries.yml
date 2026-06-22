@@ -49,6 +49,9 @@ jobs:
           echo "pr_number=${{ github.event.client_payload.payload.pull_request.number || '0' }}" >> "$GITHUB_OUTPUT"
           echo "downstream_repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
 
+      - name: "Throttle: stagger callbacks (wave 2)"
+        run: sleep 20
+
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
