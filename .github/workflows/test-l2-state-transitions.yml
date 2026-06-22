@@ -36,13 +36,16 @@ jobs:
     steps:
       - run: echo "PR closed — canceling older runs"
 
-  # STATE-04: Send completed without prior in_progress
-  # The relay's Redis state machine requires IN_PROGRESS before COMPLETED.
-  # Skipping in_progress should cause the relay to reject (400).
+  # Serialize all jobs: state04 → state05 → dynamo06 → multi05
+  # to avoid firing 6 callbacks in parallel.
+
   state04-skip-in-progress:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     steps:
+      - name: "Throttle: stagger callbacks (wave 3)"
+        run: sleep 25
+
       - name: "STATE-04: Send completed without in_progress"
         id: direct_complete
         continue-on-error: true
@@ -62,9 +65,9 @@ jobs:
             echo "This may indicate the relay allows direct completed or the state machine changed." >> $GITHUB_STEP_SUMMARY
           fi
 
-  # STATE-05: Send only in_progress, never complete — record stays "running"
   state05-stale-in-progress:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
+    needs: state04-skip-in-progress
     runs-on: ubuntu-latest
     steps:
       - name: "STATE-05: Report in_progress only"
@@ -88,9 +91,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Related: [Issue #5](https://github.com/pytorch/crcr-test/issues/5)" >> $GITHUB_STEP_SUMMARY
 
-  # DYNAMO-06: Verify completed doesn't clobber started_at/queue_time
   dynamo06-merge-semantics:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
+    needs: state05-stale-in-progress
     runs-on: ubuntu-latest
     steps:
       - name: "DYNAMO-06: Report in_progress (sets started_at, queue_time)"
@@ -151,9 +154,9 @@ jobs:
             fi
           fi
 
-  # MULTI-05: Cancelled run then re-run — both records should exist
   multi05-cancel-rerun:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
+    needs: dynamo06-merge-semantics
     runs-on: ubuntu-latest
     steps:
       - name: "MULTI-05: Report in_progress (simulating first run)"
