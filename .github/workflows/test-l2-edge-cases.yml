@@ -1,5 +1,10 @@
 name: "Test: L2 Callback Edge Cases"
 
+# Rate limit budget: 21 callbacks total, serialized into 3 waves via needs:.
+# Wave 1: ec01, ec03, ec05-a, ec05-b (7 callbacks)
+# Wave 2: ec06, tr01, tr02, tr03 (8 callbacks)
+# Wave 3: payload04, payload05, size04 (6 callbacks)
+
 on:
   repository_dispatch:
     types:
@@ -36,15 +41,21 @@ jobs:
     steps:
       - run: echo "PR closed — canceling older runs"
 
-  # EC-01: Job WITHOUT id-token:write should fail at OIDC mint
+  # =============================================
+  # WAVE 1: ec01, ec03, ec05-a, ec05-b (~7 callbacks)
+  # Starts at ~30s offset from dispatch to avoid overlap with lifecycle/hud workflows
+  # =============================================
+
   ec01-missing-oidc:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     permissions:
       actions: write
-      # id-token: write intentionally omitted
     continue-on-error: true
     steps:
+      - name: "Throttle: wave 1 offset"
+        run: sleep 30
+
       - name: "EC-01: Attempt callback without OIDC permission"
         id: no_oidc
         continue-on-error: true
@@ -62,11 +73,13 @@ jobs:
             exit 1
           fi
 
-  # EC-03: Empty test-results should succeed
   ec03-empty-test-results:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     steps:
+      - name: "Throttle: wave 1 offset"
+        run: sleep 32
+
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -77,18 +90,19 @@ jobs:
         with:
           status: completed
           conclusion: success
-          # test-results intentionally omitted
 
       - name: "EC-03: Verify success"
         run: |
           echo "## EC-03: Empty Test Results" >> $GITHUB_STEP_SUMMARY
           echo "✅ Callback succeeded without test-results field" >> $GITHUB_STEP_SUMMARY
 
-  # EC-05: Multiple parallel jobs each send their own callbacks
   ec05-multi-job-a:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     steps:
+      - name: "Throttle: wave 1 offset"
+        run: sleep 35
+
       - name: Report in_progress (Job A)
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -115,6 +129,9 @@ jobs:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     steps:
+      - name: "Throttle: wave 1 offset"
+        run: sleep 38
+
       - name: Report in_progress (Job B)
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -137,9 +154,14 @@ jobs:
           echo "## EC-05: Multi-Job — Job B" >> $GITHUB_STEP_SUMMARY
           echo "✅ Job B (check_run_id=\`${{ job.check_run_id }}\`) completed callback sent" >> $GITHUB_STEP_SUMMARY
 
-  # EC-06: always() callback fires even when a step fails
+  # =============================================
+  # WAVE 2: ec06, tr01, tr02, tr03 (~8 callbacks)
+  # Waits for wave 1 to finish
+  # =============================================
+
   ec06-always-on-failure:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
+    needs: [ec01-missing-oidc, ec03-empty-test-results, ec05-multi-job-a, ec05-multi-job-b]
     runs-on: ubuntu-latest
     steps:
       - name: Report in_progress
@@ -168,13 +190,14 @@ jobs:
           echo "## EC-06: always() Callback on Failure" >> $GITHUB_STEP_SUMMARY
           echo "✅ completed callback with conclusion=failure sent after build step failed" >> $GITHUB_STEP_SUMMARY
 
-  # --- Test Results Extraction (TR-01/02/03) ---
-
-  # TR-01: Full test results with explicit total
   tr01-full-test-results:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
+    needs: [ec01-missing-oidc, ec03-empty-test-results, ec05-multi-job-a, ec05-multi-job-b]
     runs-on: ubuntu-latest
     steps:
+      - name: "Throttle: wave 2 stagger"
+        run: sleep 3
+
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -193,11 +216,14 @@ jobs:
           echo "✅ Sent: passed=100, failed=5, skipped=10, total=115" >> $GITHUB_STEP_SUMMARY
           echo "Verify in ClickHouse: all 4 fields stored correctly" >> $GITHUB_STEP_SUMMARY
 
-  # TR-02: Test results without total (total should be computed as passed+failed+skipped)
   tr02-computed-total:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
+    needs: [ec01-missing-oidc, ec03-empty-test-results, ec05-multi-job-a, ec05-multi-job-b]
     runs-on: ubuntu-latest
     steps:
+      - name: "Throttle: wave 2 stagger"
+        run: sleep 6
+
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -216,11 +242,14 @@ jobs:
           echo "✅ Sent: passed=80, failed=3, skipped=7 (no total)" >> $GITHUB_STEP_SUMMARY
           echo "Verify in ClickHouse: total_tests should be 90 (80+3+7)" >> $GITHUB_STEP_SUMMARY
 
-  # TR-03: Test results on in_progress should NOT be stored
   tr03-results-on-in-progress:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
+    needs: [ec01-missing-oidc, ec03-empty-test-results, ec05-multi-job-a, ec05-multi-job-b]
     runs-on: ubuntu-latest
     steps:
+      - name: "Throttle: wave 2 stagger"
+        run: sleep 9
+
       - name: "TR-03: Send in_progress with test_results (should be ignored)"
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -239,11 +268,14 @@ jobs:
           echo "✅ Sent test_results with in_progress, then completed without test_results" >> $GITHUB_STEP_SUMMARY
           echo "Verify: test result fields should be empty/null (in_progress results ignored)" >> $GITHUB_STEP_SUMMARY
 
-  # --- Payload & Conclusion Variants (PAYLOAD-04/05) ---
+  # =============================================
+  # WAVE 3: payload04, payload05, size04 (~6 callbacks)
+  # Waits for wave 2 to finish
+  # =============================================
 
-  # PAYLOAD-04: completed/cancelled
   payload04-cancelled:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
+    needs: [ec06-always-on-failure, tr01-full-test-results, tr02-computed-total, tr03-results-on-in-progress]
     runs-on: ubuntu-latest
     steps:
       - name: Report in_progress
@@ -272,11 +304,14 @@ jobs:
             echo "See: https://github.com/pytorch/crcr-test/issues/7 (expand valid conclusions)" >> $GITHUB_STEP_SUMMARY
           fi
 
-  # PAYLOAD-05: completed/timed_out
   payload05-timed-out:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
+    needs: [ec06-always-on-failure, tr01-full-test-results, tr02-computed-total, tr03-results-on-in-progress]
     runs-on: ubuntu-latest
     steps:
+      - name: "Throttle: wave 3 stagger"
+        run: sleep 3
+
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -303,13 +338,14 @@ jobs:
             echo "See: https://github.com/pytorch/crcr-test/issues/7 (expand valid conclusions)" >> $GITHUB_STEP_SUMMARY
           fi
 
-  # --- Payload Size Limit (SIZE-04) ---
-
-  # SIZE-04: Payload exceeding 2MB should be rejected by HUD API
   size04-oversized-payload:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
+    needs: [ec06-always-on-failure, tr01-full-test-results, tr02-computed-total, tr03-results-on-in-progress]
     runs-on: ubuntu-latest
     steps:
+      - name: "Throttle: wave 3 stagger"
+        run: sleep 6
+
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
