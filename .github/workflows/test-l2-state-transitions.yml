@@ -43,8 +43,8 @@ jobs:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     steps:
-      - name: "Throttle: stagger callbacks (80s offset)"
-        run: sleep 80
+      - name: "Throttle: 170s base + random jitter to desync concurrent dispatches"
+        run: sleep $(( 170 + RANDOM % 25 ))
 
       - name: "STATE-04: Send completed without in_progress"
         id: direct_complete

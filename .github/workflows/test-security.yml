@@ -43,8 +43,8 @@ jobs:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     steps:
-      - name: "Throttle: stagger callbacks (110s offset)"
-        run: sleep 110
+      - name: "Throttle: 420s base + random jitter to desync concurrent dispatches"
+        run: sleep $(( 420 + RANDOM % 25 ))
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
@@ -73,6 +73,9 @@ jobs:
     needs: sec10-xss-fields
     runs-on: ubuntu-latest
     steps:
+      - name: "Throttle: inter-job jitter"
+        run: sleep $(( 5 + RANDOM % 10 ))
+
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -102,6 +105,9 @@ jobs:
     needs: sec12-sql-injection
     runs-on: ubuntu-latest
     steps:
+      - name: "Throttle: inter-job jitter"
+        run: sleep $(( 5 + RANDOM % 10 ))
+
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -141,6 +147,9 @@ jobs:
     needs: sec15-large-payload
     runs-on: ubuntu-latest
     steps:
+      - name: "Throttle: inter-job jitter"
+        run: sleep $(( 5 + RANDOM % 10 ))
+
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
