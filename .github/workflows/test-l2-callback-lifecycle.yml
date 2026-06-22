@@ -40,8 +40,8 @@ jobs:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     steps:
-      - name: "Throttle: stagger callbacks (wave 1)"
-        run: sleep 5
+      - name: "Throttle: stagger callbacks (10s offset)"
+        run: sleep 10
 
       - name: "L2-01: Report in_progress"
         id: cb_start
