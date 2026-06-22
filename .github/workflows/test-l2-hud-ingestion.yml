@@ -44,8 +44,8 @@ jobs:
       HEAD_SHA: ${{ github.event.client_payload.payload.pull_request.head.sha || '' }}
       DOWNSTREAM_REPO: ${{ github.repository }}
     steps:
-      - name: "Throttle: stagger callbacks (wave 2)"
-        run: sleep 15
+      - name: "Throttle: stagger callbacks (50s offset)"
+        run: sleep 50
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
