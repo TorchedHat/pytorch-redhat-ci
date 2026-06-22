@@ -40,6 +40,9 @@ jobs:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     steps:
+      - name: "Throttle: stagger callbacks (wave 1)"
+        run: sleep 5
+
       - name: "L2-01: Report in_progress"
         id: cb_start
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
@@ -119,6 +122,7 @@ jobs:
 
   callback-failure-path:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
+    needs: callback-lifecycle
     runs-on: ubuntu-latest
     steps:
       - name: Report in_progress
@@ -157,6 +161,7 @@ jobs:
 
   callback-timing:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
+    needs: callback-failure-path
     runs-on: ubuntu-latest
     steps:
       - name: "L2-08: Time the in_progress callback"
