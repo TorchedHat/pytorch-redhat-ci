@@ -129,7 +129,7 @@ jobs:
           if [ "$PR_NUM" != "0" ]; then
             echo "Waiting 30s for propagation..." >> $GITHUB_STEP_SUMMARY
             sleep 30
-            QUERY_URL="https://hud.pytorch.org/api/clickhouse/oot_pr_results?parameters=%7B%22pr%22%3A${PR_NUM}%7D"
+            QUERY_URL="https://hud.pytorch.org/api/clickhouse/crcr_pr_results?parameters=%7B%22pr%22%3A${PR_NUM}%7D"
             RESPONSE=$(curl -sf "$QUERY_URL" 2>&1) || true
 
             if [ -n "$RESPONSE" ]; then

@@ -94,7 +94,7 @@ jobs:
             exit 0
           fi
 
-          QUERY_URL="https://hud.pytorch.org/api/clickhouse/oot_pr_results?parameters=%7B%22pr%22%3A${PR_NUMBER}%7D"
+          QUERY_URL="https://hud.pytorch.org/api/clickhouse/crcr_pr_results?parameters=%7B%22pr%22%3A${PR_NUMBER}%7D"
           echo "Querying: \`$QUERY_URL\`" >> $GITHUB_STEP_SUMMARY
 
           RESPONSE=$(curl -sf "$QUERY_URL" 2>&1) || {
@@ -148,7 +148,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### HUD-04: Timing Metrics" >> $GITHUB_STEP_SUMMARY
           echo "ℹ️ queue_time and execution_time are relay-computed from Redis timestamps." >> $GITHUB_STEP_SUMMARY
-          echo "These can be verified by querying the oot_backend_dashboard ClickHouse query" >> $GITHUB_STEP_SUMMARY
+          echo "These can be verified by querying the crcr_backend_dashboard ClickHouse query" >> $GITHUB_STEP_SUMMARY
           echo "for \`$DOWNSTREAM_REPO\` and checking non-null queue_time/execution_time." >> $GITHUB_STEP_SUMMARY
 
       - name: "HUD-05: Verify workflow URL"
