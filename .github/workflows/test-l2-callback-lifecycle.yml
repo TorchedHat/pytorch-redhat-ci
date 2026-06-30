@@ -40,8 +40,8 @@ jobs:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     steps:
-      - name: "Throttle: 20s base + random jitter to desync concurrent dispatches"
-        run: sleep $(( 20 + RANDOM % 20 ))
+      - name: "Throttle: 30s base + wide jitter to desync concurrent dispatches"
+        run: sleep $(( 30 + RANDOM % 60 ))
 
       - name: "L2-01: Report in_progress"
         id: cb_start
