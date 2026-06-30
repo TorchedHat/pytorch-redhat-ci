@@ -1,12 +1,12 @@
 name: "Test: L2 Callback Edge Cases"
 
 # Rate limit budget: 21 callbacks total, serialized into 3 waves via needs:.
-# Target: max ~10 callbacks/min per dispatch (safe for 3 concurrent dispatches at <30/min).
-# Wave 1 starts at ~250-295s offset with per-job jitter; waves 2/3 wait for prior wave.
-# Random jitter (RANDOM % N) desynchronizes callbacks from concurrent dispatches.
-# Wave 1: ec01, ec03, ec05-a, ec05-b (7 callbacks, 15s stagger + jitter)
-# Wave 2: ec06, tr01, tr02, tr03 (8 callbacks, 15s stagger + jitter)
-# Wave 3: payload04, payload05, size04 (6 callbacks, 15s stagger + jitter)
+# Target: max ~6 callbacks/min per dispatch (safe for 3+ concurrent dispatches at 20/min).
+# Wave 1 starts at ~310s offset with 45s jitter; waves 2/3 wait for prior wave.
+# Wide jitter (RANDOM % 45-60) desynchronizes callbacks from concurrent dispatches.
+# Wave 1: ec01, ec03, ec05-a, ec05-b (7 callbacks, 15s stagger + 45s jitter)
+# Wave 2: ec06, tr01, tr02, tr03 (8 callbacks, 20s stagger + 25s jitter)
+# Wave 3: payload04, payload05, size04 (6 callbacks, 20s stagger + 25s jitter)
 
 on:
   repository_dispatch:
@@ -46,7 +46,7 @@ jobs:
 
   # =============================================
   # WAVE 1: ec01, ec03, ec05-a, ec05-b (~7 callbacks)
-  # Starts at ~90s offset from dispatch to avoid overlap with other workflows
+  # Starts at ~310s offset from dispatch to avoid overlap with other workflows
   # =============================================
 
   ec01-missing-oidc:
@@ -56,8 +56,8 @@ jobs:
       actions: write
     continue-on-error: true
     steps:
-      - name: "Throttle: 250s base + random jitter to desync concurrent dispatches"
-        run: sleep $(( 250 + RANDOM % 15 ))
+      - name: "Throttle: 310s base + wide jitter to desync concurrent dispatches"
+        run: sleep $(( 310 + RANDOM % 45 ))
 
       - name: "EC-01: Attempt callback without OIDC permission"
         id: no_oidc
@@ -80,8 +80,8 @@ jobs:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     steps:
-      - name: "Throttle: wave 1 stagger + jitter"
-        run: sleep $(( 265 + RANDOM % 15 ))
+      - name: "Throttle: wave 1 stagger + wide jitter"
+        run: sleep $(( 325 + RANDOM % 45 ))
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
@@ -103,8 +103,8 @@ jobs:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     steps:
-      - name: "Throttle: wave 1 stagger + jitter"
-        run: sleep $(( 280 + RANDOM % 15 ))
+      - name: "Throttle: wave 1 stagger + wide jitter"
+        run: sleep $(( 340 + RANDOM % 45 ))
 
       - name: Report in_progress (Job A)
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
@@ -132,8 +132,8 @@ jobs:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     steps:
-      - name: "Throttle: wave 1 stagger + jitter"
-        run: sleep $(( 295 + RANDOM % 15 ))
+      - name: "Throttle: wave 1 stagger + wide jitter"
+        run: sleep $(( 355 + RANDOM % 45 ))
 
       - name: Report in_progress (Job B)
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
@@ -159,7 +159,7 @@ jobs:
 
   # =============================================
   # WAVE 2: ec06, tr01, tr02, tr03 (~8 callbacks)
-  # Waits for wave 1 to finish, staggered 5s apart
+  # Waits for wave 1 to finish, staggered 20s apart with 25-30s jitter
   # =============================================
 
   ec06-always-on-failure:
@@ -168,7 +168,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Throttle: wave 2 entry jitter"
-        run: sleep $(( 15 + RANDOM % 15 ))
+        run: sleep $(( 15 + RANDOM % 30 ))
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
@@ -202,7 +202,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Throttle: wave 2 stagger"
-        run: sleep $(( 25 + RANDOM % 10 ))
+        run: sleep $(( 35 + RANDOM % 25 ))
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
@@ -228,7 +228,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Throttle: wave 2 stagger"
-        run: sleep $(( 40 + RANDOM % 10 ))
+        run: sleep $(( 55 + RANDOM % 25 ))
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
@@ -254,7 +254,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Throttle: wave 2 stagger"
-        run: sleep $(( 55 + RANDOM % 10 ))
+        run: sleep $(( 75 + RANDOM % 25 ))
 
       - name: "TR-03: Send in_progress with test_results (should be ignored)"
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
@@ -276,7 +276,7 @@ jobs:
 
   # =============================================
   # WAVE 3: payload04, payload05, size04 (~6 callbacks)
-  # Waits for wave 2 to finish, staggered 5s apart
+  # Waits for wave 2 to finish, staggered 20s apart with 25-30s jitter
   # =============================================
 
   payload04-cancelled:
@@ -285,7 +285,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Throttle: wave 3 entry jitter"
-        run: sleep $(( 15 + RANDOM % 15 ))
+        run: sleep $(( 15 + RANDOM % 30 ))
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
@@ -319,7 +319,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Throttle: wave 3 stagger"
-        run: sleep $(( 30 + RANDOM % 10 ))
+        run: sleep $(( 40 + RANDOM % 25 ))
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
@@ -353,7 +353,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Throttle: wave 3 stagger"
-        run: sleep $(( 45 + RANDOM % 10 ))
+        run: sleep $(( 65 + RANDOM % 25 ))
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main

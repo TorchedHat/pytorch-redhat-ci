@@ -49,8 +49,8 @@ jobs:
           echo "pr_number=${{ github.event.client_payload.payload.pull_request.number || '0' }}" >> "$GITHUB_OUTPUT"
           echo "downstream_repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
 
-      - name: "Throttle: 120s base + random jitter to desync concurrent dispatches"
-        run: sleep $(( 120 + RANDOM % 20 ))
+      - name: "Throttle: 170s base + wide jitter to desync concurrent dispatches"
+        run: sleep $(( 170 + RANDOM % 60 ))
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main

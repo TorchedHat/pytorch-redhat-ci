@@ -43,8 +43,8 @@ jobs:
     if: ${{ github.event.client_payload.payload.action != 'closed' }}
     runs-on: ubuntu-latest
     steps:
-      - name: "Throttle: 420s base + random jitter to desync concurrent dispatches"
-        run: sleep $(( 420 + RANDOM % 25 ))
+      - name: "Throttle: 450s base + wide jitter to desync concurrent dispatches"
+        run: sleep $(( 450 + RANDOM % 60 ))
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
@@ -74,7 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Throttle: inter-job jitter"
-        run: sleep $(( 5 + RANDOM % 10 ))
+        run: sleep $(( 10 + RANDOM % 20 ))
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
@@ -106,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Throttle: inter-job jitter"
-        run: sleep $(( 5 + RANDOM % 10 ))
+        run: sleep $(( 10 + RANDOM % 20 ))
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
@@ -148,7 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Throttle: inter-job jitter"
-        run: sleep $(( 5 + RANDOM % 10 ))
+        run: sleep $(( 10 + RANDOM % 20 ))
 
       - name: Report in_progress
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
