@@ -81,7 +81,7 @@ jobs:
           echo "Waiting 45s for propagation..."
           sleep 45
 
-      - name: "QP-01: PR with OOT results"
+      - name: "QP-01: PR with CRCR results"
         run: |
           echo "## ClickHouse Query Verification" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -91,8 +91,8 @@ jobs:
             exit 0
           fi
 
-          echo "### QP-01: oot_pr_results for PR #$PR_NUMBER" >> $GITHUB_STEP_SUMMARY
-          QUERY_URL="https://hud.pytorch.org/api/clickhouse/oot_pr_results?parameters=%7B%22pr%22%3A${PR_NUMBER}%7D"
+          echo "### QP-01: crcr_pr_results for PR #$PR_NUMBER" >> $GITHUB_STEP_SUMMARY
+          QUERY_URL="https://hud.pytorch.org/api/clickhouse/crcr_pr_results?parameters=%7B%22pr%22%3A${PR_NUMBER}%7D"
           RESPONSE=$(curl -sf "$QUERY_URL" 2>&1) || {
             echo "⚠️ Query failed" >> $GITHUB_STEP_SUMMARY
             exit 0
@@ -115,12 +115,12 @@ jobs:
               print('⚠️ No record found yet (propagation delay)')
           " >> $GITHUB_STEP_SUMMARY 2>&1 || echo "⚠️ Parse error" >> $GITHUB_STEP_SUMMARY
 
-      - name: "QP-02: PR with no OOT results"
+      - name: "QP-02: PR with no CRCR results"
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### QP-02: oot_pr_results for non-existent PR" >> $GITHUB_STEP_SUMMARY
+          echo "### QP-02: crcr_pr_results for non-existent PR" >> $GITHUB_STEP_SUMMARY
           FAKE_PR=999999999
-          QUERY_URL="https://hud.pytorch.org/api/clickhouse/oot_pr_results?parameters=%7B%22pr%22%3A${FAKE_PR}%7D"
+          QUERY_URL="https://hud.pytorch.org/api/clickhouse/crcr_pr_results?parameters=%7B%22pr%22%3A${FAKE_PR}%7D"
           RESPONSE=$(curl -sf "$QUERY_URL" 2>&1) || {
             echo "⚠️ Query failed" >> $GITHUB_STEP_SUMMARY
             exit 0
@@ -136,8 +136,8 @@ jobs:
       - name: "QS-05: in_progress excluded from summary pass rate"
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### QS-05: oot_summary excludes in_progress" >> $GITHUB_STEP_SUMMARY
-          QUERY_URL="https://hud.pytorch.org/api/clickhouse/oot_summary?parameters=%7B%22days%22%3A7%7D"
+          echo "### QS-05: crcr_summary excludes in_progress" >> $GITHUB_STEP_SUMMARY
+          QUERY_URL="https://hud.pytorch.org/api/clickhouse/crcr_summary?parameters=%7B%22days%22%3A7%7D"
           RESPONSE=$(curl -sf "$QUERY_URL" 2>&1) || {
             echo "⚠️ Query failed" >> $GITHUB_STEP_SUMMARY
             exit 0
@@ -162,9 +162,9 @@ jobs:
       - name: "QD-04: Non-existent repo returns empty"
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### QD-04: oot_backend_dashboard for fake repo" >> $GITHUB_STEP_SUMMARY
+          echo "### QD-04: crcr_backend_dashboard for fake repo" >> $GITHUB_STEP_SUMMARY
           FAKE_REPO="nonexistent-org/nonexistent-repo"
-          QUERY_URL="https://hud.pytorch.org/api/clickhouse/oot_backend_dashboard?parameters=%7B%22repo%22%3A%22${FAKE_REPO}%22%2C%22days%22%3A7%7D"
+          QUERY_URL="https://hud.pytorch.org/api/clickhouse/crcr_backend_dashboard?parameters=%7B%22repo%22%3A%22${FAKE_REPO}%22%2C%22days%22%3A7%7D"
           RESPONSE=$(curl -sf "$QUERY_URL" 2>&1) || {
             echo "⚠️ Query failed" >> $GITHUB_STEP_SUMMARY
             exit 0
@@ -186,7 +186,7 @@ jobs:
             exit 0
           fi
 
-          QUERY_URL="https://hud.pytorch.org/api/clickhouse/oot_pr_results?parameters=%7B%22pr%22%3A${PR_NUMBER}%7D"
+          QUERY_URL="https://hud.pytorch.org/api/clickhouse/crcr_pr_results?parameters=%7B%22pr%22%3A${PR_NUMBER}%7D"
           RESPONSE=$(curl -sf "$QUERY_URL" 2>&1) || {
             echo "⚠️ Query failed" >> $GITHUB_STEP_SUMMARY
             exit 0
