@@ -42,10 +42,6 @@ Triggered by CRCR `repository_dispatch` (`pull_request` type) or manually via `w
 - Model serialization round-trip
 - Core `test_torch.py` smoke tests
 
-### CRCR Test Workflows
-
-The repo also contains CRCR integration test workflows (`test-l1-*`, `test-l2-*`, `test-security`, `test-concurrency`) that validate the CRCR dispatch and callback pipeline from an external org. These are separate from the RHEL build/test workflows.
-
 ## CRCR Integration Level
 
 Currently at **L1** — dispatches are received and builds run, but results are not yet reported back to the [PyTorch HUD](https://hud.pytorch.org). Once stable, this will be promoted to L2+ with HUD callback reporting.
