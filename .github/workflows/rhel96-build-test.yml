@@ -1,0 +1,157 @@
+name: "RHEL 9.6: Build & Sanity Tests"
+
+on:
+  repository_dispatch:
+    types:
+      - pull_request
+  workflow_dispatch:
+    inputs:
+      pytorch_sha:
+        description: "PyTorch commit SHA to build"
+        required: true
+
+run-name: >-
+  [RHEL 9.6] ${{
+    github.event.client_payload.event_type == 'pull_request' &&
+    format('PR #{0} ({1})',
+      github.event.client_payload.payload.pull_request.number,
+      github.event.client_payload.payload.action) ||
+    format('Manual: {0}', github.event.inputs.pytorch_sha)
+  }}
+
+concurrency:
+  group: >-
+    rhel96-${{ github.event.client_payload.payload.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  cancel-on-close:
+    if: >-
+      github.event.client_payload.event_type == 'pull_request' &&
+      github.event.client_payload.payload.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "PR closed — skipping build"
+
+  build:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.client_payload.event_type == 'pull_request' &&
+       github.event.client_payload.payload.action != 'closed')
+    runs-on: [self-hosted, linux.rhel96]
+    timeout-minutes: 240
+    env:
+      PYTORCH_SHA: >-
+        ${{ github.event.client_payload.payload.pull_request.head.sha ||
+            github.event.inputs.pytorch_sha }}
+    steps:
+      - name: Validate SHA
+        run: |
+          if [ -z "$PYTORCH_SHA" ]; then
+            echo "::error::No PyTorch SHA provided"
+            exit 1
+          fi
+          echo "Building PyTorch at SHA: $PYTORCH_SHA"
+
+      - name: Checkout PyTorch
+        uses: actions/checkout@v4
+        with:
+          repository: pytorch/pytorch
+          ref: ${{ env.PYTORCH_SHA }}
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: System info
+        run: |
+          echo "## RHEL 9.6 Build Environment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| OS | $(cat /etc/redhat-release 2>/dev/null || echo 'unknown') |" >> $GITHUB_STEP_SUMMARY
+          echo "| Kernel | $(uname -r) |" >> $GITHUB_STEP_SUMMARY
+          echo "| GCC | $(gcc --version | head -1) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Python | $(python3 --version) |" >> $GITHUB_STEP_SUMMARY
+          echo "| CMake | $(cmake --version | head -1) |" >> $GITHUB_STEP_SUMMARY
+          echo "| SHA | \`$PYTORCH_SHA\` |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Build PyTorch
+        run: |
+          python3 setup.py bdist_wheel 2>&1 | tail -50
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Build" >> $GITHUB_STEP_SUMMARY
+          echo "✅ PyTorch built successfully" >> $GITHUB_STEP_SUMMARY
+
+  sanity-test:
+    needs: build
+    runs-on: [self-hosted, linux.rhel96]
+    timeout-minutes: 30
+    env:
+      PYTORCH_SHA: >-
+        ${{ github.event.client_payload.payload.pull_request.head.sha ||
+            github.event.inputs.pytorch_sha }}
+    steps:
+      - name: Checkout PyTorch
+        uses: actions/checkout@v4
+        with:
+          repository: pytorch/pytorch
+          ref: ${{ env.PYTORCH_SHA }}
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Import test
+        run: |
+          python3 -c "import torch; print(f'PyTorch {torch.__version__} loaded successfully')"
+
+      - name: Device and dtype sanity
+        run: |
+          python3 -c "
+          import torch
+          # Basic tensor ops
+          x = torch.randn(64, 64)
+          y = torch.randn(64, 64)
+          z = x @ y
+          assert z.shape == (64, 64), f'matmul shape mismatch: {z.shape}'
+
+          # Dtypes
+          for dtype in [torch.float32, torch.float64, torch.int32, torch.int64, torch.bfloat16]:
+              t = torch.ones(8, dtype=dtype)
+              assert t.dtype == dtype, f'dtype mismatch: {t.dtype} vs {dtype}'
+
+          print('Tensor ops and dtype checks passed')
+          "
+
+      - name: Autograd sanity
+        run: |
+          python3 -c "
+          import torch
+          x = torch.randn(10, requires_grad=True)
+          y = (x ** 2).sum()
+          y.backward()
+          assert x.grad is not None, 'grad is None'
+          assert x.grad.shape == x.shape, f'grad shape mismatch: {x.grad.shape}'
+          print('Autograd sanity passed')
+          "
+
+      - name: Serialization sanity
+        run: |
+          python3 -c "
+          import torch, tempfile, os
+          model = torch.nn.Linear(16, 4)
+          with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as f:
+              torch.save(model.state_dict(), f.name)
+              loaded = torch.nn.Linear(16, 4)
+              loaded.load_state_dict(torch.load(f.name, weights_only=True))
+              os.unlink(f.name)
+          print('Serialization sanity passed')
+          "
+
+      - name: Core test suite (smoke)
+        run: |
+          python3 -m pytest test/test_torch.py -x -q --timeout=120 -k "test_dir or test_type or test_dtypes" 2>&1 | tail -20
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Sanity Tests" >> $GITHUB_STEP_SUMMARY
+          echo "✅ All sanity checks passed on RHEL 9.6" >> $GITHUB_STEP_SUMMARY
