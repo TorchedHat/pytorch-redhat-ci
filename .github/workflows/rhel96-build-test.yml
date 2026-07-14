@@ -41,12 +41,12 @@ jobs:
     steps:
       - run: echo "PR closed — skipping build"
 
-  build:
+  build-and-test:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.client_payload.event_type == 'pull_request' &&
        github.event.client_payload.payload.action != 'closed')
-    runs-on: [self-hosted, linux.rhel96]
+    runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
       - name: Checkout CI repo
@@ -68,7 +68,7 @@ jobs:
           echo "$SUBSCRIPTION_KEY" > /tmp/sub_key.txt
           echo "$SUBSCRIPTION_ORG" > /tmp/sub_org.txt
 
-          podman build \
+          docker build \
             --file docker/Dockerfile.rhel9 \
             --build-arg COMMIT_HASH="${PYTORCH_SHA}" \
             --build-arg ENABLE_SUBSCRIPTION=true \
@@ -80,7 +80,7 @@ jobs:
 
           rm -f /tmp/sub_key.txt /tmp/sub_org.txt
 
-      - name: Summary
+      - name: Build summary
         run: |
           echo "## RHEL 9.6 Build" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -88,21 +88,15 @@ jobs:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Image | \`${IMAGE_TAG}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| SHA | \`${PYTORCH_SHA}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Status | Build completed |" >> $GITHUB_STEP_SUMMARY
 
-  sanity-test:
-    needs: build
-    runs-on: [self-hosted, linux.rhel96]
-    timeout-minutes: 30
-    steps:
       - name: Import test
         run: |
-          podman run --rm "${IMAGE_TAG}" \
+          docker run --rm "${IMAGE_TAG}" \
             bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "import torch; print(f\"PyTorch {torch.__version__} loaded successfully\")"'
 
       - name: Device and dtype sanity
         run: |
-          podman run --rm "${IMAGE_TAG}" \
+          docker run --rm "${IMAGE_TAG}" \
             bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
           import torch
           x = torch.randn(64, 64)
@@ -119,7 +113,7 @@ jobs:
 
       - name: Autograd sanity
         run: |
-          podman run --rm "${IMAGE_TAG}" \
+          docker run --rm "${IMAGE_TAG}" \
             bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
           import torch
           x = torch.randn(10, requires_grad=True)
@@ -132,7 +126,7 @@ jobs:
 
       - name: Serialization sanity
         run: |
-          podman run --rm "${IMAGE_TAG}" \
+          docker run --rm "${IMAGE_TAG}" \
             bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
           import torch, tempfile, os
           model = torch.nn.Linear(16, 4)
@@ -146,14 +140,14 @@ jobs:
 
       - name: Core test suite (smoke)
         run: |
-          podman run --rm "${IMAGE_TAG}" \
+          docker run --rm "${IMAGE_TAG}" \
             bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -m pytest test/test_torch.py -x -q --timeout=120 -k "test_dir or test_type or test_dtypes"'
 
       - name: Cleanup image
         if: always()
-        run: podman rmi "${IMAGE_TAG}" 2>/dev/null || true
+        run: docker rmi "${IMAGE_TAG}" 2>/dev/null || true
 
-      - name: Summary
+      - name: Test summary
         if: always()
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
