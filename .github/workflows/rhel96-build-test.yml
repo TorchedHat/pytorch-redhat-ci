@@ -24,6 +24,14 @@ concurrency:
     rhel96-${{ github.event.client_payload.payload.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
+env:
+  PYTORCH_SHA: >-
+    ${{ github.event.client_payload.payload.pull_request.head.sha ||
+        github.event.inputs.pytorch_sha }}
+  IMAGE_TAG: >-
+    rhel9-pytorch:${{ github.event.client_payload.payload.pull_request.head.sha ||
+        github.event.inputs.pytorch_sha }}
+
 jobs:
   cancel-on-close:
     if: >-
@@ -40,11 +48,10 @@ jobs:
        github.event.client_payload.payload.action != 'closed')
     runs-on: [self-hosted, linux.rhel96]
     timeout-minutes: 240
-    env:
-      PYTORCH_SHA: >-
-        ${{ github.event.client_payload.payload.pull_request.head.sha ||
-            github.event.inputs.pytorch_sha }}
     steps:
+      - name: Checkout CI repo
+        uses: actions/checkout@v4
+
       - name: Validate SHA
         run: |
           if [ -z "$PYTORCH_SHA" ]; then
@@ -53,105 +60,102 @@ jobs:
           fi
           echo "Building PyTorch at SHA: $PYTORCH_SHA"
 
-      - name: Checkout PyTorch
-        uses: actions/checkout@v4
-        with:
-          repository: pytorch/pytorch
-          ref: ${{ env.PYTORCH_SHA }}
-          submodules: recursive
-          fetch-depth: 1
-
-      - name: System info
+      - name: Build container image
+        env:
+          SUBSCRIPTION_KEY: ${{ secrets.RHEL_SUBSCRIPTION_ACTIVATION_KEY }}
+          SUBSCRIPTION_ORG: ${{ secrets.RHEL_SUBSCRIPTION_ORG_ID }}
         run: |
-          echo "## RHEL 9.6 Build Environment" >> $GITHUB_STEP_SUMMARY
+          echo "$SUBSCRIPTION_KEY" > /tmp/sub_key.txt
+          echo "$SUBSCRIPTION_ORG" > /tmp/sub_org.txt
+
+          podman build \
+            --file docker/Dockerfile.rhel9 \
+            --build-arg COMMIT_HASH="${PYTORCH_SHA}" \
+            --build-arg ENABLE_SUBSCRIPTION=true \
+            --build-arg RHEL_OS_VERSION=9.6 \
+            --secret id=subscription_key,src=/tmp/sub_key.txt \
+            --secret id=subscription_org,src=/tmp/sub_org.txt \
+            --tag "${IMAGE_TAG}" \
+            .
+
+          rm -f /tmp/sub_key.txt /tmp/sub_org.txt
+
+      - name: Summary
+        run: |
+          echo "## RHEL 9.6 Build" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| OS | $(cat /etc/redhat-release 2>/dev/null || echo 'unknown') |" >> $GITHUB_STEP_SUMMARY
-          echo "| Kernel | $(uname -r) |" >> $GITHUB_STEP_SUMMARY
-          echo "| GCC | $(gcc --version | head -1) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Python | $(python3 --version) |" >> $GITHUB_STEP_SUMMARY
-          echo "| CMake | $(cmake --version | head -1) |" >> $GITHUB_STEP_SUMMARY
-          echo "| SHA | \`$PYTORCH_SHA\` |" >> $GITHUB_STEP_SUMMARY
-
-      - name: Build PyTorch
-        run: |
-          python3 setup.py bdist_wheel 2>&1 | tail -50
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Build" >> $GITHUB_STEP_SUMMARY
-          echo "✅ PyTorch built successfully" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${IMAGE_TAG}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| SHA | \`${PYTORCH_SHA}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | Build completed |" >> $GITHUB_STEP_SUMMARY
 
   sanity-test:
     needs: build
     runs-on: [self-hosted, linux.rhel96]
     timeout-minutes: 30
-    env:
-      PYTORCH_SHA: >-
-        ${{ github.event.client_payload.payload.pull_request.head.sha ||
-            github.event.inputs.pytorch_sha }}
     steps:
-      - name: Checkout PyTorch
-        uses: actions/checkout@v4
-        with:
-          repository: pytorch/pytorch
-          ref: ${{ env.PYTORCH_SHA }}
-          submodules: recursive
-          fetch-depth: 1
-
       - name: Import test
         run: |
-          python3 -c "import torch; print(f'PyTorch {torch.__version__} loaded successfully')"
+          podman run --rm "${IMAGE_TAG}" \
+            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "import torch; print(f\"PyTorch {torch.__version__} loaded successfully\")"'
 
       - name: Device and dtype sanity
         run: |
-          python3 -c "
+          podman run --rm "${IMAGE_TAG}" \
+            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
           import torch
-          # Basic tensor ops
           x = torch.randn(64, 64)
           y = torch.randn(64, 64)
           z = x @ y
-          assert z.shape == (64, 64), f'matmul shape mismatch: {z.shape}'
+          assert z.shape == (64, 64), f\"matmul shape mismatch: {z.shape}\"
 
-          # Dtypes
           for dtype in [torch.float32, torch.float64, torch.int32, torch.int64, torch.bfloat16]:
               t = torch.ones(8, dtype=dtype)
-              assert t.dtype == dtype, f'dtype mismatch: {t.dtype} vs {dtype}'
+              assert t.dtype == dtype, f\"dtype mismatch: {t.dtype} vs {dtype}\"
 
-          print('Tensor ops and dtype checks passed')
-          "
+          print(\"Tensor ops and dtype checks passed\")
+          "'
 
       - name: Autograd sanity
         run: |
-          python3 -c "
+          podman run --rm "${IMAGE_TAG}" \
+            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
           import torch
           x = torch.randn(10, requires_grad=True)
           y = (x ** 2).sum()
           y.backward()
-          assert x.grad is not None, 'grad is None'
-          assert x.grad.shape == x.shape, f'grad shape mismatch: {x.grad.shape}'
-          print('Autograd sanity passed')
-          "
+          assert x.grad is not None, \"grad is None\"
+          assert x.grad.shape == x.shape, f\"grad shape mismatch: {x.grad.shape}\"
+          print(\"Autograd sanity passed\")
+          "'
 
       - name: Serialization sanity
         run: |
-          python3 -c "
+          podman run --rm "${IMAGE_TAG}" \
+            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
           import torch, tempfile, os
           model = torch.nn.Linear(16, 4)
-          with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as f:
+          with tempfile.NamedTemporaryFile(suffix=\".pt\", delete=False) as f:
               torch.save(model.state_dict(), f.name)
               loaded = torch.nn.Linear(16, 4)
               loaded.load_state_dict(torch.load(f.name, weights_only=True))
               os.unlink(f.name)
-          print('Serialization sanity passed')
-          "
+          print(\"Serialization sanity passed\")
+          "'
 
       - name: Core test suite (smoke)
         run: |
-          python3 -m pytest test/test_torch.py -x -q --timeout=120 -k "test_dir or test_type or test_dtypes" 2>&1 | tail -20
+          podman run --rm "${IMAGE_TAG}" \
+            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -m pytest test/test_torch.py -x -q --timeout=120 -k "test_dir or test_type or test_dtypes"'
+
+      - name: Cleanup image
+        if: always()
+        run: podman rmi "${IMAGE_TAG}" 2>/dev/null || true
 
       - name: Summary
         if: always()
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Sanity Tests" >> $GITHUB_STEP_SUMMARY
-          echo "✅ All sanity checks passed on RHEL 9.6" >> $GITHUB_STEP_SUMMARY
+          echo "All sanity checks completed on RHEL 9.6" >> $GITHUB_STEP_SUMMARY

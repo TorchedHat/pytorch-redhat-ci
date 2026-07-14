@@ -1,0 +1,193 @@
+#GLOBAL ARGS
+ARG RHEL_OS_VERSION=9.4
+
+# BASE IMAGE
+FROM registry.access.redhat.com/ubi9/ubi:${RHEL_OS_VERSION}
+
+# BUILD ARGS
+ARG PYTORCH_REPO=https://github.com/pytorch/pytorch
+ARG PYT_BRANCH=main
+ARG COMMIT_HASH=""
+ARG OS_TYPE=x86_64
+ARG PY_VER=""
+ARG CONDA_VER=latest
+ARG CUDA_VERSION=13-0
+ARG CONDA_ENV="cuda_torch_build"
+ARG ENABLE_SUBSCRIPTION=false
+
+# Register the system using BuildKit secret mount — credentials never
+# appear in build args, image layers, or docker history.
+RUN --mount=type=secret,id=subscription_key \
+    --mount=type=secret,id=subscription_org \
+    if [ "${ENABLE_SUBSCRIPTION}" = "true" ]; then \
+        ACTIVATION_KEY=$(cat /run/secrets/subscription_key 2>/dev/null) && \
+        ORG_ID=$(cat /run/secrets/subscription_org 2>/dev/null) && \
+        if [ -z "${ACTIVATION_KEY}" ] || [ -z "${ORG_ID}" ]; then \
+            echo "ERROR: subscription secrets not provided" && exit 1; \
+        fi && \
+        subscription-manager register \
+            --activationkey="${ACTIVATION_KEY}" \
+            --org="${ORG_ID}" && \
+        unset ACTIVATION_KEY ORG_ID; \
+    fi
+
+# Install all system packages after subscription registration
+RUN dnf install -y \
+    wget \
+    jq \
+    vim \
+    git \
+    gdb \
+    unzip \
+    which \
+    libffi-devel \
+    openssl-devel \
+    gcc \
+    gcc-c++ \
+    make \
+    cmake \
+    ninja-build \
+    lld \
+    openblas \
+    openblas-devel \
+    openmpi \
+    openmpi-devel \
+    environment-modules \
+    findutils && \
+    dnf clean all
+
+# Install miniconda after system packages are installed
+RUN wget --no-check-certificate https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${OS_TYPE}.sh && \
+    bash Miniforge3-Linux-${OS_TYPE}.sh -p /miniconda -b && \
+    rm Miniforge3-Linux-${OS_TYPE}.sh && \
+    /miniconda/bin/conda update -y conda && \
+    /miniconda/bin/conda init && \
+    if [ -n "${PY_VER}" ]; then \
+        /miniconda/bin/conda create -n ${CONDA_ENV} python=${PY_VER} pip -y; \
+    else \
+        /miniconda/bin/conda create -n ${CONDA_ENV} pip -y; \
+    fi
+
+# Set PATH for conda
+ENV PATH=/miniconda/bin:${PATH}
+
+# Install CUDA and cuDNN
+RUN source /miniconda/etc/profile.d/conda.sh && \
+    conda activate ${CONDA_ENV} && \
+    dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo && \
+    dnf clean all && \
+    dnf -y install cuda-toolkit-${CUDA_VERSION} && \
+    CUDA_VERSION_CONDA=$(echo ${CUDA_VERSION} | sed 's/-/./g') && \
+    conda install nvidia::cudnn cuda-version=${CUDA_VERSION_CONDA}
+
+# Clone PyTorch and checkout specific commit/branch if required
+RUN git clone ${PYTORCH_REPO} pytorch && \
+    cd pytorch && \
+    git checkout ${PYT_BRANCH} && \
+    if [ -n "${COMMIT_HASH}" ]; then \
+        echo "Checking out specific commit: ${COMMIT_HASH}" && \
+        git checkout ${COMMIT_HASH}; \
+    fi && \
+    git submodule sync && \
+    git submodule update --init --recursive
+
+# Install sccache
+RUN conda install -y sccache
+
+# Set OpenBLAS paths (only effective when LAPACK is enabled)
+ENV OpenBLAS_HOME=/usr/lib64:{OpenBLAS_HOME}
+
+# Adding CUDA and library to the paths
+ENV PATH=/usr/local/cuda/bin:$PATH
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+
+# Suppress NVCC deprecated GPU target warnings
+ENV TORCH_NVCC_FLAGS="-Wno-deprecated-gpu-targets"
+# Limit parallel jobs to avoid OOM
+ENV MAX_JOBS=56
+# Install CUTLASS headers for TorchInductor CUTLASS backend
+RUN git clone --depth 1 https://github.com/NVIDIA/cutlass.git /opt/cutlass
+ENV TORCHINDUCTOR_CUTLASS_DIR=/opt/cutlass
+
+# Set working directory
+WORKDIR /pytorch
+
+# Detect CUDA arch list based on installed CUDA toolkit version
+RUN CUDA_VER=$(nvcc --version | grep "release" | sed 's/.*release //' | sed 's/,.*//') && \
+    CUDA_MAJOR=$(echo ${CUDA_VER} | cut -d. -f1) && \
+    CUDA_MINOR=$(echo ${CUDA_VER} | cut -d. -f2) && \
+    ARCH_LIST="5.0;8.0" && \
+    if [ "${CUDA_MAJOR}" -ge 11 ] && [ "${CUDA_MINOR}" -ge 1 -o "${CUDA_MAJOR}" -gt 11 ]; then \
+        ARCH_LIST="${ARCH_LIST};8.6"; \
+    fi && \
+    if [ "${CUDA_MAJOR}" -ge 11 ] && [ "${CUDA_MINOR}" -ge 8 -o "${CUDA_MAJOR}" -gt 11 ]; then \
+        ARCH_LIST="${ARCH_LIST};8.9;9.0;9.0a"; \
+    fi && \
+    if [ "${CUDA_MAJOR}" -ge 12 ] && [ "${CUDA_MINOR}" -ge 8 -o "${CUDA_MAJOR}" -gt 12 ]; then \
+        ARCH_LIST="${ARCH_LIST};10.0;10.0a;12.0;12.0a"; \
+    fi && \
+    if [ "${CUDA_MAJOR}" -ge 13 ]; then \
+        ARCH_LIST=$(echo "${ARCH_LIST}" | sed 's/5\.0;//'); \
+        ARCH_LIST="${ARCH_LIST};11.0a"; \
+    fi && \
+    echo "Detected CUDA ${CUDA_VER}, setting TORCH_CUDA_ARCH_LIST=${ARCH_LIST}" && \
+    echo "TORCH_CUDA_ARCH_LIST=${ARCH_LIST}" >> /etc/environment
+
+# Build and install NCCL from source (version detected from PyTorch ci_commit_pins)
+RUN NCCL_VERSION=$(cat .ci/docker/ci_commit_pins/nccl.txt 2>/dev/null | tr -d '[:space:]') && \
+    if [ -z "${NCCL_VERSION}" ]; then \
+        echo "WARNING: nccl.txt not found, checking for CUDA-specific pin..." && \
+        CUDA_MAJOR=$(echo ${CUDA_VERSION} | cut -d'-' -f1) && \
+        NCCL_VERSION=$(cat .ci/docker/ci_commit_pins/nccl-cu${CUDA_MAJOR}.txt 2>/dev/null | tr -d '[:space:]'); \
+    fi && \
+    if [ -z "${NCCL_VERSION}" ]; then NCCL_VERSION="v2.29.7-1"; echo "WARNING: Using fallback NCCL version"; fi && \
+    echo "Building NCCL ${NCCL_VERSION}" && \
+    export TORCH_CUDA_ARCH_LIST=$(grep TORCH_CUDA_ARCH_LIST /etc/environment | cut -d= -f2) && \
+    git clone -b ${NCCL_VERSION} --depth 1 https://github.com/NVIDIA/nccl.git /tmp/nccl && \
+    cd /tmp/nccl && \
+    make -j$(nproc) src.build CUDA_HOME=/usr/local/cuda && \
+    cp -a build/include/* /usr/local/cuda/include/ && \
+    cp -a build/lib/* /usr/local/cuda/lib64/ && \
+    cd / && \
+    rm -rf /tmp/nccl && \
+    ldconfig
+
+# Use system NCCL instead of building from third_party/nccl
+ENV USE_SYSTEM_NCCL=1
+
+# Setting flags and changing the linker to lld from default ld
+ENV CMAKE_LINKER="lld"
+ENV LDFLAGS="-fuse-ld=lld"
+
+# Enable OpenMPI support in PyTorch
+ENV USE_MPI=1
+ENV USE_SYSTEM_MPI=1
+ENV MPI_HOME=/usr/lib64/openmpi
+ENV PATH=/usr/lib64/openmpi/bin:${PATH}
+ENV LD_LIBRARY_PATH=/usr/lib64/openmpi/lib:${LD_LIBRARY_PATH}
+
+# Install dependencies and build PyTorch
+RUN source /miniconda/etc/profile.d/conda.sh && \
+    conda activate ${CONDA_ENV} && \
+    export TORCH_CUDA_ARCH_LIST=$(grep TORCH_CUDA_ARCH_LIST /etc/environment | cut -d= -f2) && \
+    echo "Building with TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}" && \
+    pip install -r .ci/docker/requirements-ci.txt && \
+    pip install --group dev && \
+    pip install mkl-static mkl-include && \
+    .ci/docker/common/install_magma_conda.sh $(echo ${CUDA_VERSION} | sed 's/-/./g') && \
+    echo "=== Installing triton from pip (latest available version) ===" && \
+    pip install --index-url https://download.pytorch.org/whl/test/ triton && \
+    echo "=== Triton installed successfully ===" && \
+    export CMAKE_PREFIX_PATH="${CONDA_PREFIX:-'$(dirname $(which conda))/../'}:${CMAKE_PREFIX_PATH}" && \
+    .ci/pytorch/build.sh
+
+# Set default conda environment for interactive use
+ENV CONDA_DEFAULT_ENV=${CONDA_ENV}
+RUN echo "conda activate ${CONDA_ENV}" >> ~/.bashrc
+
+# Unregister subscription (uses secret mount so creds don't leak)
+RUN --mount=type=secret,id=subscription_key \
+    if [ "${ENABLE_SUBSCRIPTION}" = "true" ] && [ -f /run/secrets/subscription_key ]; then \
+        subscription-manager unregister || true && \
+        subscription-manager clean || true; \
+    fi
