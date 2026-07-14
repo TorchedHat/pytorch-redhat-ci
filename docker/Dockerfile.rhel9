@@ -2,7 +2,7 @@
 ARG RHEL_OS_VERSION=9.4
 
 # BASE IMAGE
-FROM registry.access.redhat.com/ubi9/ubi:${RHEL_OS_VERSION}
+FROM docker.io/redhat/ubi9:${RHEL_OS_VERSION}
 
 # BUILD ARGS
 ARG PYTORCH_REPO=https://github.com/pytorch/pytorch
