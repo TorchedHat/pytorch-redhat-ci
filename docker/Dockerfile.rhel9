@@ -62,7 +62,9 @@ RUN dnf install -y --allowerasing \
     perl \
     zlib-devel \
     gcc-gfortran \
-    jemalloc && \
+    jemalloc \
+    xz \
+    bzip2 && \
     dnf clean all
 
 # Install miniconda after system packages are installed
