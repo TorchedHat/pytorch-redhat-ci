@@ -153,6 +153,7 @@ ENV LD_LIBRARY_PATH=/usr/lib64/openmpi/lib:${LD_LIBRARY_PATH}
 # Install dependencies and build PyTorch
 RUN source /miniconda/etc/profile.d/conda.sh && \
     conda activate ${CONDA_ENV} && \
+    conda install -y -c conda-forge libstdcxx-ng && \
     export TORCH_CUDA_ARCH_LIST=$(grep TORCH_CUDA_ARCH_LIST /etc/environment | cut -d= -f2) && \
     echo "Building with TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}" && \
     pip install -r .ci/docker/requirements-ci.txt && \
