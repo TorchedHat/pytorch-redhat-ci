@@ -94,9 +94,6 @@ RUN git clone ${PYTORCH_REPO} pytorch && \
     git submodule sync && \
     git submodule update --init --recursive
 
-# Install sccache
-RUN conda install -y sccache
-
 # Set OpenBLAS paths (only effective when LAPACK is enabled)
 ENV OpenBLAS_HOME=/usr/lib64:{OpenBLAS_HOME}
 
