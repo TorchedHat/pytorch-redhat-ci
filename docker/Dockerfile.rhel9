@@ -53,7 +53,8 @@ RUN dnf install -y \
     openmpi \
     openmpi-devel \
     environment-modules \
-    findutils && \
+    findutils \
+    curl && \
     dnf clean all
 
 # Install miniconda after system packages are installed
@@ -71,14 +72,16 @@ RUN wget --no-check-certificate https://github.com/conda-forge/miniforge/release
 # Set PATH for conda
 ENV PATH=/miniconda/bin:${PATH}
 
-# Install CUDA and cuDNN
-RUN source /miniconda/etc/profile.d/conda.sh && \
-    conda activate ${CONDA_ENV} && \
-    dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo && \
-    dnf clean all && \
-    dnf -y install cuda-toolkit-${CUDA_VERSION} && \
-    CUDA_VERSION_CONDA=$(echo ${CUDA_VERSION} | sed 's/-/./g') && \
-    conda install nvidia::cudnn cuda-version=${CUDA_VERSION_CONDA}
+# Install CUDA, NCCL, cuSparseLt using upstream common scripts
+RUN mkdir -p /tmp/ci_commit_pins && \
+    curl -fsSL https://raw.githubusercontent.com/pytorch/pytorch/main/.ci/docker/common/install_cuda.sh -o /tmp/install_cuda.sh && \
+    curl -fsSL https://raw.githubusercontent.com/pytorch/pytorch/main/.ci/docker/common/install_nccl.sh -o /tmp/install_nccl.sh && \
+    curl -fsSL https://raw.githubusercontent.com/pytorch/pytorch/main/.ci/docker/common/install_cusparselt.sh -o /tmp/install_cusparselt.sh && \
+    curl -fsSL https://raw.githubusercontent.com/pytorch/pytorch/main/.ci/docker/ci_commit_pins/nccl.txt -o /tmp/ci_commit_pins/nccl.txt && \
+    chmod +x /tmp/install_cuda.sh /tmp/install_nccl.sh /tmp/install_cusparselt.sh
+
+WORKDIR /tmp
+RUN bash install_cuda.sh $(echo ${CUDA_VERSION} | sed 's/-/./g')
 
 # Clone PyTorch and checkout specific commit/branch if required
 RUN git clone ${PYTORCH_REPO} pytorch && \
@@ -132,25 +135,6 @@ RUN CUDA_VER=$(nvcc --version | grep "release" | sed 's/.*release //' | sed 's/,
     fi && \
     echo "Detected CUDA ${CUDA_VER}, setting TORCH_CUDA_ARCH_LIST=${ARCH_LIST}" && \
     echo "TORCH_CUDA_ARCH_LIST=${ARCH_LIST}" >> /etc/environment
-
-# Build and install NCCL from source (version detected from PyTorch ci_commit_pins)
-RUN NCCL_VERSION=$(cat .ci/docker/ci_commit_pins/nccl.txt 2>/dev/null | tr -d '[:space:]') && \
-    if [ -z "${NCCL_VERSION}" ]; then \
-        echo "WARNING: nccl.txt not found, checking for CUDA-specific pin..." && \
-        CUDA_MAJOR=$(echo ${CUDA_VERSION} | cut -d'-' -f1) && \
-        NCCL_VERSION=$(cat .ci/docker/ci_commit_pins/nccl-cu${CUDA_MAJOR}.txt 2>/dev/null | tr -d '[:space:]'); \
-    fi && \
-    if [ -z "${NCCL_VERSION}" ]; then NCCL_VERSION="v2.29.7-1"; echo "WARNING: Using fallback NCCL version"; fi && \
-    echo "Building NCCL ${NCCL_VERSION}" && \
-    export TORCH_CUDA_ARCH_LIST=$(grep TORCH_CUDA_ARCH_LIST /etc/environment | cut -d= -f2) && \
-    git clone -b ${NCCL_VERSION} --depth 1 https://github.com/NVIDIA/nccl.git /tmp/nccl && \
-    cd /tmp/nccl && \
-    make -j$(nproc) src.build CUDA_HOME=/usr/local/cuda && \
-    cp -a build/include/* /usr/local/cuda/include/ && \
-    cp -a build/lib/* /usr/local/cuda/lib64/ && \
-    cd / && \
-    rm -rf /tmp/nccl && \
-    ldconfig
 
 # Use system NCCL instead of building from third_party/nccl
 ENV USE_SYSTEM_NCCL=1
