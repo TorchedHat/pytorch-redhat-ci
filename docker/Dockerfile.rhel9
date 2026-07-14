@@ -100,6 +100,9 @@ RUN git clone ${PYTORCH_REPO} pytorch && \
 # Set OpenBLAS paths (only effective when LAPACK is enabled)
 ENV OpenBLAS_HOME=/usr/lib64:{OpenBLAS_HOME}
 
+# Add CUDA static libs to linker path (.run installer doesn't set this unlike dnf)
+ENV LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/lib64/stubs:${LIBRARY_PATH}
+
 # Adding CUDA and library to the paths
 ENV PATH=/usr/local/cuda/bin:$PATH
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
@@ -142,6 +145,10 @@ ENV USE_SYSTEM_NCCL=1
 # Setting flags and changing the linker to lld from default ld
 ENV CMAKE_LINKER="lld"
 ENV LDFLAGS="-fuse-ld=lld"
+
+# Enable F16C and AVX2 for half-precision float16 support on x86-64
+ENV CFLAGS="-mf16c -mavx2"
+ENV CXXFLAGS="-mf16c -mavx2"
 
 # Enable OpenMPI support in PyTorch
 ENV USE_MPI=1
