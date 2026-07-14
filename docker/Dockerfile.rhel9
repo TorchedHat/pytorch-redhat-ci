@@ -31,6 +31,9 @@ RUN --mount=type=secret,id=subscription_key \
         unset ACTIVATION_KEY ORG_ID; \
     fi
 
+# Add EPEL repo for jemalloc
+RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+
 # Install all system packages after subscription registration
 RUN dnf install -y \
     wget \
@@ -54,7 +57,12 @@ RUN dnf install -y \
     openmpi-devel \
     environment-modules \
     findutils \
-    curl && \
+    curl \
+    sudo \
+    perl \
+    zlib-devel \
+    gcc-gfortran \
+    jemalloc && \
     dnf clean all
 
 # Install miniconda after system packages are installed
