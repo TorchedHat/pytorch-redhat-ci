@@ -97,8 +97,8 @@ RUN bash install_cuda.sh $(echo ${CUDA_VERSION} | sed 's/-/./g')
 RUN ln -sf /usr/lib64/libgomp.so.1 /usr/lib64/libgomp.so
 
 # Clone PyTorch and checkout specific commit/branch if required
-RUN git clone ${PYTORCH_REPO} pytorch && \
-    cd pytorch && \
+RUN git clone ${PYTORCH_REPO} /pytorch && \
+    cd /pytorch && \
     git checkout ${PYT_BRANCH} && \
     if [ -n "${COMMIT_HASH}" ]; then \
         echo "Checking out specific commit: ${COMMIT_HASH}" && \
