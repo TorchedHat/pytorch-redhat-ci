@@ -1,0 +1,150 @@
+name: "CRCR Nightly: RHEL 9.6 Build & Test"
+
+on:
+  schedule:
+    - cron: "0 4 * * *"  # daily at 04:00 UTC
+  workflow_dispatch:
+
+run-name: >-
+  [Nightly] RHEL 9.6 @ ${{ github.event_name == 'schedule' && 'cron' || 'manual' }}
+
+env:
+  UPSTREAM_REPO: pytorch/pytorch
+  NIGHTLY_BRANCH: nightly
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  nightly-build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - name: Checkout CI repo
+        uses: actions/checkout@v4
+
+      - name: Fetch nightly HEAD SHA
+        id: sha
+        run: |
+          SHA=$(git ls-remote "https://github.com/${UPSTREAM_REPO}.git" "refs/heads/${NIGHTLY_BRANCH}" | awk '{print $1}')
+          if [ -z "$SHA" ]; then
+            echo "::error::Could not resolve HEAD SHA for ${UPSTREAM_REPO}/${NIGHTLY_BRANCH}"
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Nightly SHA: $SHA"
+
+      - name: Build container image
+        env:
+          PYTORCH_SHA: ${{ steps.sha.outputs.sha }}
+          IMAGE_TAG: rhel9-pytorch-nightly:${{ steps.sha.outputs.sha }}
+          SUBSCRIPTION_KEY: ${{ secrets.RHEL_SUBSCRIPTION_ACTIVATION_KEY }}
+          SUBSCRIPTION_ORG: ${{ secrets.RHEL_SUBSCRIPTION_ORG_ID }}
+        run: |
+          echo "$SUBSCRIPTION_KEY" > /tmp/sub_key.txt
+          echo "$SUBSCRIPTION_ORG" > /tmp/sub_org.txt
+
+          docker build \
+            --file docker/Dockerfile.rhel9 \
+            --build-arg COMMIT_HASH="${PYTORCH_SHA}" \
+            --build-arg ENABLE_SUBSCRIPTION=true \
+            --build-arg RHEL_OS_VERSION=9.6 \
+            --secret id=subscription_key,src=/tmp/sub_key.txt \
+            --secret id=subscription_org,src=/tmp/sub_org.txt \
+            --tag "${IMAGE_TAG}" \
+            .
+
+          rm -f /tmp/sub_key.txt /tmp/sub_org.txt
+
+      - name: Import test
+        env:
+          IMAGE_TAG: rhel9-pytorch-nightly:${{ steps.sha.outputs.sha }}
+        run: |
+          docker run --rm "${IMAGE_TAG}" \
+            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "import torch; print(f\"PyTorch {torch.__version__} loaded successfully\")"'
+
+      - name: Device and dtype sanity
+        env:
+          IMAGE_TAG: rhel9-pytorch-nightly:${{ steps.sha.outputs.sha }}
+        run: |
+          docker run --rm "${IMAGE_TAG}" \
+            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
+          import torch
+          x = torch.randn(64, 64)
+          y = torch.randn(64, 64)
+          z = x @ y
+          assert z.shape == (64, 64), f\"matmul shape mismatch: {z.shape}\"
+
+          for dtype in [torch.float32, torch.float64, torch.int32, torch.int64, torch.bfloat16]:
+              t = torch.ones(8, dtype=dtype)
+              assert t.dtype == dtype, f\"dtype mismatch: {t.dtype} vs {dtype}\"
+
+          print(\"Tensor ops and dtype checks passed\")
+          "'
+
+      - name: Autograd sanity
+        env:
+          IMAGE_TAG: rhel9-pytorch-nightly:${{ steps.sha.outputs.sha }}
+        run: |
+          docker run --rm "${IMAGE_TAG}" \
+            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
+          import torch
+          x = torch.randn(10, requires_grad=True)
+          y = (x ** 2).sum()
+          y.backward()
+          assert x.grad is not None, \"grad is None\"
+          assert x.grad.shape == x.shape, f\"grad shape mismatch: {x.grad.shape}\"
+          print(\"Autograd sanity passed\")
+          "'
+
+      - name: Serialization sanity
+        env:
+          IMAGE_TAG: rhel9-pytorch-nightly:${{ steps.sha.outputs.sha }}
+        run: |
+          docker run --rm "${IMAGE_TAG}" \
+            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
+          import torch, tempfile, os
+          model = torch.nn.Linear(16, 4)
+          with tempfile.NamedTemporaryFile(suffix=\".pt\", delete=False) as f:
+              torch.save(model.state_dict(), f.name)
+              loaded = torch.nn.Linear(16, 4)
+              loaded.load_state_dict(torch.load(f.name, weights_only=True))
+              os.unlink(f.name)
+          print(\"Serialization sanity passed\")
+          "'
+
+      - name: Core test suite (smoke)
+        env:
+          IMAGE_TAG: rhel9-pytorch-nightly:${{ steps.sha.outputs.sha }}
+        run: |
+          docker run --rm "${IMAGE_TAG}" \
+            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -m pytest test/test_torch.py -x -q --timeout=120 -k "test_dir or test_type or test_dtypes"'
+
+      - name: Report nightly results to CRCR
+        if: always()
+        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
+        with:
+          status: completed
+          conclusion: ${{ job.status }}
+          delivery-id: ${{ steps.sha.outputs.sha }}
+          event-type: nightly
+
+      - name: Cleanup image
+        if: always()
+        env:
+          IMAGE_TAG: rhel9-pytorch-nightly:${{ steps.sha.outputs.sha }}
+        run: docker rmi "${IMAGE_TAG}" 2>/dev/null || true
+
+      - name: Nightly summary
+        if: always()
+        env:
+          PYTORCH_SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          echo "## CRCR Nightly: RHEL 9.6" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Result | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Event type | nightly |" >> $GITHUB_STEP_SUMMARY
