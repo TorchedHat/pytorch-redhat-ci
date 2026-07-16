@@ -27,17 +27,28 @@ jobs:
       - name: Checkout CI repo
         uses: actions/checkout@v4
 
-      - name: Fetch nightly HEAD SHA
+      - name: Fetch source SHA from nightly branch
         id: sha
         run: |
-          SHA=$(git ls-remote "https://github.com/${UPSTREAM_REPO}.git" "refs/heads/${NIGHTLY_BRANCH}" | awk '{print $1}')
-          if [ -z "$SHA" ]; then
-            echo "::error::Could not resolve HEAD SHA for ${UPSTREAM_REPO}/${NIGHTLY_BRANCH}"
+          NIGHTLY_SHA=$(git ls-remote "https://github.com/${UPSTREAM_REPO}.git" "refs/heads/${NIGHTLY_BRANCH}" | awk '{print $1}')
+          if [ -z "$NIGHTLY_SHA" ]; then
+            echo "::error::Could not resolve HEAD for ${UPSTREAM_REPO}/${NIGHTLY_BRANCH}"
             exit 1
           fi
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "image_tag=rhel9-pytorch-nightly:${SHA}" >> "$GITHUB_OUTPUT"
-          echo "Nightly SHA: $SHA"
+          echo "Nightly branch HEAD: $NIGHTLY_SHA"
+
+          # The nightly commit message is: "YYYY-MM-DD nightly release (<main_sha>)"
+          # Extract the source main SHA from inside the parentheses.
+          COMMIT_MSG=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/commits/${NIGHTLY_SHA}" | jq -r '.commit.message')
+          SOURCE_SHA=$(echo "$COMMIT_MSG" | grep -oP '\(([a-f0-9]{40})\)' | tr -d '()')
+          if [ -z "$SOURCE_SHA" ]; then
+            echo "::error::Could not extract source SHA from nightly commit message: ${COMMIT_MSG}"
+            exit 1
+          fi
+
+          echo "Source main SHA: $SOURCE_SHA"
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "image_tag=rhel9-pytorch-nightly:${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Build container image
         env:
@@ -51,7 +62,6 @@ jobs:
 
           podman build \
             --file docker/Dockerfile.rhel9 \
-            --build-arg PYT_BRANCH=nightly \
             --build-arg COMMIT_HASH="${PYTORCH_SHA}" \
             --build-arg ENABLE_SUBSCRIPTION=true \
             --build-arg RHEL_OS_VERSION=9.6 \
