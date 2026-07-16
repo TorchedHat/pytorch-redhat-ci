@@ -45,7 +45,7 @@ jobs:
           echo "$SUBSCRIPTION_KEY" > /tmp/sub_key.txt
           echo "$SUBSCRIPTION_ORG" > /tmp/sub_org.txt
 
-          docker build \
+          podman build \
             --file docker/Dockerfile.rhel9 \
             --build-arg COMMIT_HASH="${PYTORCH_SHA}" \
             --build-arg ENABLE_SUBSCRIPTION=true \
@@ -61,14 +61,14 @@ jobs:
         env:
           IMAGE_TAG: rhel9-pytorch-nightly:${{ steps.sha.outputs.sha }}
         run: |
-          docker run --rm "${IMAGE_TAG}" \
+          podman run --rm "${IMAGE_TAG}" \
             bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "import torch; print(f\"PyTorch {torch.__version__} loaded successfully\")"'
 
       - name: Device and dtype sanity
         env:
           IMAGE_TAG: rhel9-pytorch-nightly:${{ steps.sha.outputs.sha }}
         run: |
-          docker run --rm "${IMAGE_TAG}" \
+          podman run --rm "${IMAGE_TAG}" \
             bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
           import torch
           x = torch.randn(64, 64)
@@ -87,7 +87,7 @@ jobs:
         env:
           IMAGE_TAG: rhel9-pytorch-nightly:${{ steps.sha.outputs.sha }}
         run: |
-          docker run --rm "${IMAGE_TAG}" \
+          podman run --rm "${IMAGE_TAG}" \
             bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
           import torch
           x = torch.randn(10, requires_grad=True)
@@ -102,7 +102,7 @@ jobs:
         env:
           IMAGE_TAG: rhel9-pytorch-nightly:${{ steps.sha.outputs.sha }}
         run: |
-          docker run --rm "${IMAGE_TAG}" \
+          podman run --rm "${IMAGE_TAG}" \
             bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
           import torch, tempfile, os
           model = torch.nn.Linear(16, 4)
@@ -118,7 +118,7 @@ jobs:
         env:
           IMAGE_TAG: rhel9-pytorch-nightly:${{ steps.sha.outputs.sha }}
         run: |
-          docker run --rm "${IMAGE_TAG}" \
+          podman run --rm "${IMAGE_TAG}" \
             bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -m pytest test/test_torch.py -x -q --timeout=120 -k "test_dir or test_type or test_dtypes"'
 
       - name: Report nightly results to CRCR
@@ -127,14 +127,12 @@ jobs:
         with:
           status: completed
           conclusion: ${{ job.status }}
-          delivery-id: ${{ steps.sha.outputs.sha }}
-          event-type: nightly
 
       - name: Cleanup image
         if: always()
         env:
           IMAGE_TAG: rhel9-pytorch-nightly:${{ steps.sha.outputs.sha }}
-        run: docker rmi "${IMAGE_TAG}" 2>/dev/null || true
+        run: podman rmi "${IMAGE_TAG}" 2>/dev/null || true
 
       - name: Nightly summary
         if: always()
