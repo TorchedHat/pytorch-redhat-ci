@@ -51,6 +51,7 @@ jobs:
 
           podman build \
             --file docker/Dockerfile.rhel9 \
+            --build-arg PYT_BRANCH=nightly \
             --build-arg COMMIT_HASH="${PYTORCH_SHA}" \
             --build-arg ENABLE_SUBSCRIPTION=true \
             --build-arg RHEL_OS_VERSION=9.6 \
