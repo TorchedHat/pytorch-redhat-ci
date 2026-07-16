@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   nightly-build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: linux.rhel96
     timeout-minutes: 240
     steps:
       - name: Checkout CI repo
