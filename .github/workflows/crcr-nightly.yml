@@ -223,7 +223,7 @@ jobs:
           echo "Running $(echo "$COMMANDS" | wc -l) CPU test command(s)"
           podman run --rm "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
-            cd /pytorch
+            cd /pytorch && export PYTHONPATH=/pytorch
             PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
               [ -z \"\$cmd\" ] && continue
@@ -295,7 +295,7 @@ jobs:
           echo "Running $(echo "$COMMANDS" | wc -l) inductor test command(s)"
           podman run --rm "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
-            cd /pytorch
+            cd /pytorch && export PYTHONPATH=/pytorch
             PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
               [ -z \"\$cmd\" ] && continue
@@ -382,7 +382,7 @@ jobs:
           echo "Running $(echo "$COMMANDS" | wc -l) single-GPU test command(s)"
           podman run --rm --device nvidia.com/gpu=all "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
-            cd /pytorch
+            cd /pytorch && export PYTHONPATH=/pytorch
             PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
               [ -z \"\$cmd\" ] && continue
@@ -475,7 +475,7 @@ jobs:
           echo "Running $(echo "$COMMANDS" | wc -l) multi-GPU test command(s)"
           podman run --rm --device nvidia.com/gpu=all "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
-            cd /pytorch
+            cd /pytorch && export PYTHONPATH=/pytorch
             PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
               [ -z \"\$cmd\" ] && continue
