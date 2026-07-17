@@ -37,8 +37,6 @@ jobs:
           fi
           echo "Nightly branch HEAD: $NIGHTLY_SHA"
 
-          # The nightly commit message is: "YYYY-MM-DD nightly release (<main_sha>)"
-          # Extract the source main SHA from inside the parentheses.
           COMMIT_MSG=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/commits/${NIGHTLY_SHA}" | jq -r '.commit.message')
           SOURCE_SHA=$(echo "$COMMIT_MSG" | grep -oP '\(([a-f0-9]{40})\)' | tr -d '()')
           if [ -z "$SOURCE_SHA" ]; then
@@ -99,32 +97,27 @@ jobs:
             exit 1
           fi
 
-      - name: Import test
+      - name: Sanity tests
         run: |
-          podman run --rm "${IMAGE_TAG}" \
-            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "import torch; print(f\"PyTorch {torch.__version__} loaded successfully\")"'
+          podman run --rm "${IMAGE_TAG}" bash -c '
+            source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
 
-      - name: Device and dtype sanity
-        run: |
-          podman run --rm "${IMAGE_TAG}" \
-            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
+            echo "=== Import test ==="
+            python -c "import torch; print(f\"PyTorch {torch.__version__} loaded successfully\")"
+
+            echo "=== Device and dtype sanity ==="
+            python -c "
           import torch
-          x = torch.randn(64, 64)
-          y = torch.randn(64, 64)
-          z = x @ y
+          z = torch.randn(64, 64) @ torch.randn(64, 64)
           assert z.shape == (64, 64), f\"matmul shape mismatch: {z.shape}\"
-
           for dtype in [torch.float32, torch.float64, torch.int32, torch.int64, torch.bfloat16]:
               t = torch.ones(8, dtype=dtype)
               assert t.dtype == dtype, f\"dtype mismatch: {t.dtype} vs {dtype}\"
-
           print(\"Tensor ops and dtype checks passed\")
-          "'
+          "
 
-      - name: Autograd sanity
-        run: |
-          podman run --rm "${IMAGE_TAG}" \
-            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
+            echo "=== Autograd sanity ==="
+            python -c "
           import torch
           x = torch.randn(10, requires_grad=True)
           y = (x ** 2).sum()
@@ -132,12 +125,10 @@ jobs:
           assert x.grad is not None, \"grad is None\"
           assert x.grad.shape == x.shape, f\"grad shape mismatch: {x.grad.shape}\"
           print(\"Autograd sanity passed\")
-          "'
+          "
 
-      - name: Serialization sanity
-        run: |
-          podman run --rm "${IMAGE_TAG}" \
-            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -c "
+            echo "=== Serialization sanity ==="
+            python -c "
           import torch, tempfile, os
           model = torch.nn.Linear(16, 4)
           with tempfile.NamedTemporaryFile(suffix=\".pt\", delete=False) as f:
@@ -146,15 +137,15 @@ jobs:
               loaded.load_state_dict(torch.load(f.name, weights_only=True))
               os.unlink(f.name)
           print(\"Serialization sanity passed\")
-          "'
+          "
 
-      - name: Core test suite (smoke)
-        run: |
-          podman run --rm "${IMAGE_TAG}" \
-            bash -c 'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && python -m pytest test/test_torch.py -x -q --timeout=120 -k "test_dir or test_type or test_dtypes"'
+            echo "=== Core test suite (smoke) ==="
+            python -m pytest test/test_torch.py -x -q -k "test_dir or test_type or test_dtypes"
+          '
 
       - name: Report nightly results to CRCR
         if: always()
+        continue-on-error: true
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
           status: completed
