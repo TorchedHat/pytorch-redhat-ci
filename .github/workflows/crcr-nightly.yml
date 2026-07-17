@@ -248,3 +248,92 @@ jobs:
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| Result | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Category | inductor |" >> $GITHUB_STEP_SUMMARY
+
+  sgpu-tests:
+    needs: build
+    runs-on: linux.rhel96
+    timeout-minutes: 90
+    env:
+      IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+      PYTORCH_SHA: ${{ needs.build.outputs.sha }}
+    steps:
+      - name: Checkout CI repo
+        uses: actions/checkout@v4
+
+      - name: Check GPU availability
+        id: gpu_check
+        run: |
+          if nvidia-smi &>/dev/null; then
+            GPU_COUNT=$(nvidia-smi -L 2>/dev/null | wc -l)
+            echo "gpu_available=true" >> "$GITHUB_OUTPUT"
+            echo "gpu_count=$GPU_COUNT" >> "$GITHUB_OUTPUT"
+            echo "Found $GPU_COUNT GPU(s)"
+            nvidia-smi -L
+          else
+            echo "gpu_available=false" >> "$GITHUB_OUTPUT"
+            echo "gpu_count=0" >> "$GITHUB_OUTPUT"
+            echo "No GPU detected — skipping single-GPU tests"
+          fi
+
+      - name: Verify image exists
+        if: steps.gpu_check.outputs.gpu_available == 'true'
+        run: |
+          if ! podman image exists "${IMAGE_TAG}"; then
+            echo "::error::Image ${IMAGE_TAG} not found in local podman store"
+            exit 1
+          fi
+
+      - name: Run single-GPU test suite
+        if: steps.gpu_check.outputs.gpu_available == 'true'
+        run: |
+          podman run --rm --device nvidia.com/gpu=all \
+            -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c '
+            source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
+            cd /pytorch
+
+            PASSED=0
+            FAILED=0
+            ERRORS=""
+
+            while IFS= read -r cmd; do
+              echo ""
+              echo "============================================================"
+              echo "Running: $cmd"
+              echo "============================================================"
+              if eval "$cmd"; then
+                PASSED=$((PASSED + 1))
+              else
+                FAILED=$((FAILED + 1))
+                ERRORS="${ERRORS}\n  FAIL: $cmd"
+              fi
+            done < <(python /ci_scripts/test_config.py sgpu --commands-only)
+
+            echo ""
+            echo "============================================================"
+            echo "Single-GPU Tests: ${PASSED} passed, ${FAILED} failed"
+            echo "============================================================"
+            if [ $FAILED -gt 0 ]; then
+              echo -e "Failed tests:${ERRORS}"
+              exit 1
+            fi
+          '
+
+      - name: Report results to CRCR
+        if: always() && steps.gpu_check.outputs.gpu_available == 'true'
+        continue-on-error: true
+        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
+        with:
+          status: completed
+          conclusion: ${{ job.status }}
+
+      - name: Test summary
+        if: always()
+        run: |
+          echo "## CRCR Nightly: RHEL 9.6 — Single-GPU Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| GPUs | ${{ steps.gpu_check.outputs.gpu_count }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Result | \`${{ steps.gpu_check.outputs.gpu_available == 'true' && job.status || 'skipped (no GPU)' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Category | sgpu |" >> $GITHUB_STEP_SUMMARY
