@@ -31,7 +31,6 @@ jobs:
       - name: Fetch source SHAs from nightly branch
         id: sha
         run: |
-          # Get latest and previous nightly commits
           NIGHTLY_COMMITS=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/commits?sha=${NIGHTLY_BRANCH}&per_page=2" | jq -r '.[].sha')
           NIGHTLY_SHA=$(echo "$NIGHTLY_COMMITS" | head -1)
           PREV_NIGHTLY_SHA=$(echo "$NIGHTLY_COMMITS" | tail -1)
@@ -40,11 +39,7 @@ jobs:
             echo "::error::Could not resolve HEAD for ${UPSTREAM_REPO}/${NIGHTLY_BRANCH}"
             exit 1
           fi
-          echo "Nightly branch HEAD: $NIGHTLY_SHA"
-          echo "Previous nightly: $PREV_NIGHTLY_SHA"
 
-          # Extract source main SHA from nightly commit message
-          # Format: "YYYY-MM-DD nightly release (<main_sha>)"
           extract_source_sha() {
             local COMMIT_MSG=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/commits/$1" | jq -r '.commit.message')
             echo "$COMMIT_MSG" | grep -oP '\(([a-f0-9]{40})\)' | tr -d '()'
@@ -102,10 +97,16 @@ jobs:
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| Image | \`${IMAGE_TAG}\` |" >> $GITHUB_STEP_SUMMARY
 
-  cpu-tests:
+  determine-tests:
     needs: build
     runs-on: linux.rhel96
-    timeout-minutes: 120
+    timeout-minutes: 10
+    outputs:
+      cpu_tests: ${{ steps.resolve.outputs.cpu_tests }}
+      inductor_tests: ${{ steps.resolve.outputs.inductor_tests }}
+      sgpu_tests: ${{ steps.resolve.outputs.sgpu_tests }}
+      mgpu_tests: ${{ steps.resolve.outputs.mgpu_tests }}
+      mode: ${{ steps.resolve.outputs.mode }}
     env:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
       PYTORCH_SHA: ${{ needs.build.outputs.sha }}
@@ -114,6 +115,64 @@ jobs:
       - name: Checkout CI repo
         uses: actions/checkout@v4
 
+      - name: Resolve test lists
+        id: resolve
+        run: |
+          MODE="full"
+          if [ -n "${PREV_SHA}" ]; then
+            echo "Delta mode: comparing ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
+            # Run targeted_tests.py inside the built image (has /pytorch checkout)
+            for cat in cpu inductor sgpu mgpu; do
+              CMDS=$(podman run --rm -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c "
+                source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
+                cd /pytorch
+                python /ci_scripts/targeted_tests.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category ${cat} --commands-only 2>/dev/null
+              " || true)
+              if [ -n "$CMDS" ]; then
+                MODE="delta"
+              fi
+              # Store as base64 to preserve newlines in GitHub outputs
+              echo "${cat}_tests=$(echo "$CMDS" | base64 -w0)" >> "$GITHUB_OUTPUT"
+            done
+          fi
+
+          # If delta produced nothing for any category, fill with full suite
+          for cat in cpu inductor sgpu mgpu; do
+            VAR="${cat}_tests"
+            CURRENT=$(grep "^${VAR}=" "$GITHUB_OUTPUT" 2>/dev/null | cut -d= -f2-)
+            DECODED=$(echo "$CURRENT" | base64 -d 2>/dev/null || true)
+            if [ -z "$DECODED" ]; then
+              echo "No delta tests for ${cat}, using full suite"
+              FULL=$(python scripts/test_config.py "${cat}" --commands-only)
+              # Overwrite the output
+              echo "${cat}_tests=$(echo "$FULL" | base64 -w0)" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
+          echo "mode=${MODE}" >> "$GITHUB_OUTPUT"
+
+      - name: Determination summary
+        run: |
+          echo "## CRCR Nightly: Test Determination" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Mode | \`${{ steps.resolve.outputs.mode }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Current SHA | \`${PYTORCH_SHA:0:10}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Previous SHA | \`${PREV_SHA:0:10}\` |" >> $GITHUB_STEP_SUMMARY
+          for cat in cpu inductor sgpu mgpu; do
+            COUNT=$(echo "${{ steps.resolve.outputs[format('{0}_tests', cat)] }}" | base64 -d 2>/dev/null | grep -c '.' || echo 0)
+            echo "| ${cat} tests | ${COUNT} |" >> $GITHUB_STEP_SUMMARY
+          done
+
+  cpu-tests:
+    needs: [build, determine-tests]
+    runs-on: linux.rhel96
+    timeout-minutes: 120
+    env:
+      IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+      PYTORCH_SHA: ${{ needs.build.outputs.sha }}
+    steps:
       - name: Verify image exists
         run: |
           if ! podman image exists "${IMAGE_TAG}"; then
@@ -145,53 +204,42 @@ jobs:
           '
 
       - name: Run CPU test suite
+        env:
+          TEST_LIST_B64: ${{ needs.determine-tests.outputs.cpu_tests }}
         run: |
-          podman run --rm -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c '
+          COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
+          if [ -z "$COMMANDS" ]; then
+            echo "No CPU tests to run"
+            exit 0
+          fi
+
+          echo "Running $(echo "$COMMANDS" | wc -l) CPU test command(s)"
+          podman run --rm "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
-
-            # Delta-based: use targeted_tests.py if previous SHA is available
-            if [ -n "'"${PREV_SHA}"'" ]; then
-              echo "Delta mode: ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
-              COMMANDS=$(python /ci_scripts/targeted_tests.py "'"${PREV_SHA}"'" "'"${PYTORCH_SHA}"'" --pytorch-dir /pytorch --category cpu --commands-only 2>/dev/null)
-            else
-              echo "Full mode: no previous SHA available"
-              COMMANDS=""
-            fi
-
-            # Fallback to full suite if no delta commands
-            if [ -z "$COMMANDS" ]; then
-              echo "No delta tests found for cpu, running full suite"
-              COMMANDS=$(python /ci_scripts/test_config.py cpu --commands-only)
-            fi
-
-            PASSED=0
-            FAILED=0
-            ERRORS=""
-
+            PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
-              [ -z "$cmd" ] && continue
-              echo ""
-              echo "============================================================"
-              echo "Running: $cmd"
-              echo "============================================================"
-              if eval "$cmd"; then
-                PASSED=$((PASSED + 1))
+              [ -z \"\$cmd\" ] && continue
+              echo ''
+              echo '============================================================'
+              echo \"Running: \$cmd\"
+              echo '============================================================'
+              if eval \"\$cmd\"; then
+                PASSED=\$((PASSED + 1))
               else
-                FAILED=$((FAILED + 1))
-                ERRORS="${ERRORS}\n  FAIL: $cmd"
+                FAILED=\$((FAILED + 1))
+                ERRORS=\"\${ERRORS}\n  FAIL: \$cmd\"
               fi
-            done <<< "$COMMANDS"
-
-            echo ""
-            echo "============================================================"
-            echo "CPU Tests: ${PASSED} passed, ${FAILED} failed"
-            echo "============================================================"
-            if [ $FAILED -gt 0 ]; then
-              echo -e "Failed tests:${ERRORS}"
+            done <<< '$COMMANDS'
+            echo ''
+            echo '============================================================'
+            echo \"CPU Tests: \${PASSED} passed, \${FAILED} failed\"
+            echo '============================================================'
+            if [ \$FAILED -gt 0 ]; then
+              echo -e \"Failed tests:\${ERRORS}\"
               exit 1
             fi
-          '
+          "
 
       - name: Report results to CRCR
         if: always()
@@ -209,22 +257,17 @@ jobs:
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Previous SHA | \`${{ needs.build.outputs.prev_sha || 'N/A' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Mode | \`${{ needs.determine-tests.outputs.mode }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Result | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Category | cpu |" >> $GITHUB_STEP_SUMMARY
 
   inductor-tests:
-    needs: [build, cpu-tests]
+    needs: [build, determine-tests, cpu-tests]
     runs-on: linux.rhel96
     timeout-minutes: 120
     env:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
       PYTORCH_SHA: ${{ needs.build.outputs.sha }}
-      PREV_SHA: ${{ needs.build.outputs.prev_sha }}
     steps:
-      - name: Checkout CI repo
-        uses: actions/checkout@v4
-
       - name: Verify image exists
         run: |
           if ! podman image exists "${IMAGE_TAG}"; then
@@ -233,50 +276,42 @@ jobs:
           fi
 
       - name: Run inductor test suite
+        env:
+          TEST_LIST_B64: ${{ needs.determine-tests.outputs.inductor_tests }}
         run: |
-          podman run --rm -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c '
+          COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
+          if [ -z "$COMMANDS" ]; then
+            echo "No inductor tests to run"
+            exit 0
+          fi
+
+          echo "Running $(echo "$COMMANDS" | wc -l) inductor test command(s)"
+          podman run --rm "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
-
-            if [ -n "'"${PREV_SHA}"'" ]; then
-              echo "Delta mode: ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
-              COMMANDS=$(python /ci_scripts/targeted_tests.py "'"${PREV_SHA}"'" "'"${PYTORCH_SHA}"'" --pytorch-dir /pytorch --category inductor --commands-only 2>/dev/null)
-            else
-              COMMANDS=""
-            fi
-
-            if [ -z "$COMMANDS" ]; then
-              echo "No delta tests found for inductor, running full suite"
-              COMMANDS=$(python /ci_scripts/test_config.py inductor --commands-only)
-            fi
-
-            PASSED=0
-            FAILED=0
-            ERRORS=""
-
+            PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
-              [ -z "$cmd" ] && continue
-              echo ""
-              echo "============================================================"
-              echo "Running: $cmd"
-              echo "============================================================"
-              if eval "$cmd"; then
-                PASSED=$((PASSED + 1))
+              [ -z \"\$cmd\" ] && continue
+              echo ''
+              echo '============================================================'
+              echo \"Running: \$cmd\"
+              echo '============================================================'
+              if eval \"\$cmd\"; then
+                PASSED=\$((PASSED + 1))
               else
-                FAILED=$((FAILED + 1))
-                ERRORS="${ERRORS}\n  FAIL: $cmd"
+                FAILED=\$((FAILED + 1))
+                ERRORS=\"\${ERRORS}\n  FAIL: \$cmd\"
               fi
-            done <<< "$COMMANDS"
-
-            echo ""
-            echo "============================================================"
-            echo "Inductor Tests: ${PASSED} passed, ${FAILED} failed"
-            echo "============================================================"
-            if [ $FAILED -gt 0 ]; then
-              echo -e "Failed tests:${ERRORS}"
+            done <<< '$COMMANDS'
+            echo ''
+            echo '============================================================'
+            echo \"Inductor Tests: \${PASSED} passed, \${FAILED} failed\"
+            echo '============================================================'
+            if [ \$FAILED -gt 0 ]; then
+              echo -e \"Failed tests:\${ERRORS}\"
               exit 1
             fi
-          '
+          "
 
       - name: Report results to CRCR
         if: always()
@@ -295,20 +330,15 @@ jobs:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| Result | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Category | inductor |" >> $GITHUB_STEP_SUMMARY
 
   sgpu-tests:
-    needs: [build, inductor-tests]
+    needs: [build, determine-tests, inductor-tests]
     runs-on: linux.rhel96
     timeout-minutes: 90
     env:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
       PYTORCH_SHA: ${{ needs.build.outputs.sha }}
-      PREV_SHA: ${{ needs.build.outputs.prev_sha }}
     steps:
-      - name: Checkout CI repo
-        uses: actions/checkout@v4
-
       - name: Check GPU availability
         id: gpu_check
         run: |
@@ -316,7 +346,6 @@ jobs:
             GPU_COUNT=$(nvidia-smi -L 2>/dev/null | wc -l)
             echo "gpu_available=true" >> "$GITHUB_OUTPUT"
             echo "gpu_count=$GPU_COUNT" >> "$GITHUB_OUTPUT"
-            echo "Found $GPU_COUNT GPU(s)"
             nvidia-smi -L
           else
             echo "gpu_available=false" >> "$GITHUB_OUTPUT"
@@ -334,51 +363,42 @@ jobs:
 
       - name: Run single-GPU test suite
         if: steps.gpu_check.outputs.gpu_available == 'true'
+        env:
+          TEST_LIST_B64: ${{ needs.determine-tests.outputs.sgpu_tests }}
         run: |
-          podman run --rm --device nvidia.com/gpu=all \
-            -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c '
+          COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
+          if [ -z "$COMMANDS" ]; then
+            echo "No sgpu tests to run"
+            exit 0
+          fi
+
+          echo "Running $(echo "$COMMANDS" | wc -l) single-GPU test command(s)"
+          podman run --rm --device nvidia.com/gpu=all "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
-
-            if [ -n "'"${PREV_SHA}"'" ]; then
-              echo "Delta mode: ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
-              COMMANDS=$(python /ci_scripts/targeted_tests.py "'"${PREV_SHA}"'" "'"${PYTORCH_SHA}"'" --pytorch-dir /pytorch --category sgpu --commands-only 2>/dev/null)
-            else
-              COMMANDS=""
-            fi
-
-            if [ -z "$COMMANDS" ]; then
-              echo "No delta tests found for sgpu, running full suite"
-              COMMANDS=$(python /ci_scripts/test_config.py sgpu --commands-only)
-            fi
-
-            PASSED=0
-            FAILED=0
-            ERRORS=""
-
+            PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
-              [ -z "$cmd" ] && continue
-              echo ""
-              echo "============================================================"
-              echo "Running: $cmd"
-              echo "============================================================"
-              if eval "$cmd"; then
-                PASSED=$((PASSED + 1))
+              [ -z \"\$cmd\" ] && continue
+              echo ''
+              echo '============================================================'
+              echo \"Running: \$cmd\"
+              echo '============================================================'
+              if eval \"\$cmd\"; then
+                PASSED=\$((PASSED + 1))
               else
-                FAILED=$((FAILED + 1))
-                ERRORS="${ERRORS}\n  FAIL: $cmd"
+                FAILED=\$((FAILED + 1))
+                ERRORS=\"\${ERRORS}\n  FAIL: \$cmd\"
               fi
-            done <<< "$COMMANDS"
-
-            echo ""
-            echo "============================================================"
-            echo "Single-GPU Tests: ${PASSED} passed, ${FAILED} failed"
-            echo "============================================================"
-            if [ $FAILED -gt 0 ]; then
-              echo -e "Failed tests:${ERRORS}"
+            done <<< '$COMMANDS'
+            echo ''
+            echo '============================================================'
+            echo \"Single-GPU Tests: \${PASSED} passed, \${FAILED} failed\"
+            echo '============================================================'
+            if [ \$FAILED -gt 0 ]; then
+              echo -e \"Failed tests:\${ERRORS}\"
               exit 1
             fi
-          '
+          "
 
       - name: Report results to CRCR
         if: always() && steps.gpu_check.outputs.gpu_available == 'true'
@@ -398,20 +418,15 @@ jobs:
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| GPUs | ${{ steps.gpu_check.outputs.gpu_count }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Result | \`${{ steps.gpu_check.outputs.gpu_available == 'true' && job.status || 'skipped (no GPU)' }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Category | sgpu |" >> $GITHUB_STEP_SUMMARY
 
   mgpu-tests:
-    needs: [build, sgpu-tests]
+    needs: [build, determine-tests, sgpu-tests]
     runs-on: linux.rhel96
     timeout-minutes: 90
     env:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
       PYTORCH_SHA: ${{ needs.build.outputs.sha }}
-      PREV_SHA: ${{ needs.build.outputs.prev_sha }}
     steps:
-      - name: Checkout CI repo
-        uses: actions/checkout@v4
-
       - name: Check multi-GPU availability
         id: gpu_check
         run: |
@@ -441,51 +456,42 @@ jobs:
 
       - name: Run multi-GPU test suite
         if: steps.gpu_check.outputs.mgpu_available == 'true'
+        env:
+          TEST_LIST_B64: ${{ needs.determine-tests.outputs.mgpu_tests }}
         run: |
-          podman run --rm --device nvidia.com/gpu=all \
-            -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c '
+          COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
+          if [ -z "$COMMANDS" ]; then
+            echo "No mgpu tests to run"
+            exit 0
+          fi
+
+          echo "Running $(echo "$COMMANDS" | wc -l) multi-GPU test command(s)"
+          podman run --rm --device nvidia.com/gpu=all "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
-
-            if [ -n "'"${PREV_SHA}"'" ]; then
-              echo "Delta mode: ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
-              COMMANDS=$(python /ci_scripts/targeted_tests.py "'"${PREV_SHA}"'" "'"${PYTORCH_SHA}"'" --pytorch-dir /pytorch --category mgpu --commands-only 2>/dev/null)
-            else
-              COMMANDS=""
-            fi
-
-            if [ -z "$COMMANDS" ]; then
-              echo "No delta tests found for mgpu, running full suite"
-              COMMANDS=$(python /ci_scripts/test_config.py mgpu --commands-only)
-            fi
-
-            PASSED=0
-            FAILED=0
-            ERRORS=""
-
+            PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
-              [ -z "$cmd" ] && continue
-              echo ""
-              echo "============================================================"
-              echo "Running: $cmd"
-              echo "============================================================"
-              if eval "$cmd"; then
-                PASSED=$((PASSED + 1))
+              [ -z \"\$cmd\" ] && continue
+              echo ''
+              echo '============================================================'
+              echo \"Running: \$cmd\"
+              echo '============================================================'
+              if eval \"\$cmd\"; then
+                PASSED=\$((PASSED + 1))
               else
-                FAILED=$((FAILED + 1))
-                ERRORS="${ERRORS}\n  FAIL: $cmd"
+                FAILED=\$((FAILED + 1))
+                ERRORS=\"\${ERRORS}\n  FAIL: \$cmd\"
               fi
-            done <<< "$COMMANDS"
-
-            echo ""
-            echo "============================================================"
-            echo "Multi-GPU Tests: ${PASSED} passed, ${FAILED} failed"
-            echo "============================================================"
-            if [ $FAILED -gt 0 ]; then
-              echo -e "Failed tests:${ERRORS}"
+            done <<< '$COMMANDS'
+            echo ''
+            echo '============================================================'
+            echo \"Multi-GPU Tests: \${PASSED} passed, \${FAILED} failed\"
+            echo '============================================================'
+            if [ \$FAILED -gt 0 ]; then
+              echo -e \"Failed tests:\${ERRORS}\"
               exit 1
             fi
-          '
+          "
 
       - name: Report results to CRCR
         if: always() && steps.gpu_check.outputs.mgpu_available == 'true'
@@ -505,4 +511,3 @@ jobs:
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| GPUs | ${{ steps.gpu_check.outputs.gpu_count }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Result | \`${{ steps.gpu_check.outputs.mgpu_available == 'true' && job.status || 'skipped (need 2+ GPUs)' }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Category | mgpu |" >> $GITHUB_STEP_SUMMARY
