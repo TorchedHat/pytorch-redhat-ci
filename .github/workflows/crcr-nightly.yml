@@ -195,7 +195,7 @@ jobs:
           ((x ** 2).sum()).backward()
           assert x.grad is not None and x.grad.shape == x.shape
           m = torch.nn.Linear(16, 4)
-          with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as f:
+          with tempfile.NamedTemporaryFile(suffix=\".pt\", delete=False) as f:
               torch.save(m.state_dict(), f.name)
               torch.nn.Linear(16, 4).load_state_dict(torch.load(f.name, weights_only=True))
               os.unlink(f.name)
