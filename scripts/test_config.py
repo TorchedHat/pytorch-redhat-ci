@@ -110,14 +110,23 @@ SUITES = {
 }
 
 
+def _test_name(test_file: str) -> str:
+    """Convert test file path to run_test.py test name (e.g. test/test_cuda.py -> test_cuda)."""
+    name = test_file.replace("test/", "", 1)
+    if name.endswith(".py"):
+        name = name[:-3]
+    return name.replace("/", ".")
+
+
 def get_commands(suite: list[tuple[str, str | None, float, str]]) -> list[str]:
-    """Return pytest commands for a test suite."""
+    """Return run_test.py commands for a test suite."""
     commands = []
     for test_file, kw_filter, _, _ in suite:
+        name = _test_name(test_file)
         if kw_filter:
-            commands.append(f'python -m pytest {test_file} -x -q -k "{kw_filter}"')
+            commands.append(f'python test/run_test.py -i {name} -k "{kw_filter}"')
         else:
-            commands.append(f"python -m pytest {test_file} -x -q")
+            commands.append(f"python test/run_test.py -i {name}")
     return commands
 
 

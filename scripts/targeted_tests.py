@@ -47,6 +47,14 @@ def classify_test(test_file: str) -> str:
     return "cpu"
 
 
+def _test_name(test_file: str) -> str:
+    """Convert test file path to run_test.py name (e.g. test/test_cuda.py -> test_cuda)."""
+    name = test_file.replace("test/", "", 1)
+    if name.endswith(".py"):
+        name = name[:-3]
+    return name.replace("/", ".")
+
+
 @dataclass
 class TestTarget:
     """A test command to run."""
@@ -61,9 +69,10 @@ class TestTarget:
 
     @property
     def command(self) -> str:
+        name = _test_name(self.file)
         if self.filter:
-            return f'python -m pytest {self.file} -x -q -k "{self.filter}"'
-        return f"python -m pytest {self.file} -x -q"
+            return f'python test/run_test.py -i {name} -k "{self.filter}"'
+        return f"python test/run_test.py -i {name}"
 
 
 # ---------------------------------------------------------------------------
