@@ -13,15 +13,17 @@ Usage:
     python test_config.py --all        # list all categories as JSON
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys
-
+from typing import Optional
 
 # Each entry: (test_file, keyword_filter, estimated_minutes, description)
 # keyword_filter is passed to pytest -k when set.
 
-CPU_TESTS: list[tuple[str, str | None, float, str]] = [
+CPU_TESTS: list[tuple[str, Optional[str], float, str]] = [
     # Core tensor operations
     ("test/test_torch.py", "test_dir or test_type or test_dtypes or test_scalar", 5, "core tensor ops"),
     ("test/test_torch.py", "reshape or view or permute or transpose or expand or contiguous", 5, "tensor shape ops"),
@@ -73,7 +75,7 @@ CPU_TESTS: list[tuple[str, str | None, float, str]] = [
     ("test/test_testing.py", None, 5, "testing utils"),
 ]
 
-INDUCTOR_TESTS: list[tuple[str, str | None, float, str]] = [
+INDUCTOR_TESTS: list[tuple[str, Optional[str], float, str]] = [
     ("test/inductor/test_torchinductor.py", "test_simple", 10, "inductor basic"),
     ("test/inductor/test_torchinductor.py", "codegen", 15, "inductor codegen"),
     ("test/inductor/test_fx_fusion.py", None, 10, "fx fusion passes"),
@@ -85,7 +87,7 @@ INDUCTOR_TESTS: list[tuple[str, str | None, float, str]] = [
     ("test/functorch/test_eager_transforms.py", None, 10, "functorch eager transforms"),
 ]
 
-SGPU_TESTS: list[tuple[str, str | None, float, str]] = [
+SGPU_TESTS: list[tuple[str, Optional[str], float, str]] = [
     ("test/test_cuda.py", None, 15, "CUDA core"),
     ("test/test_torch.py", "cuda", 10, "tensor ops on CUDA"),
     ("test/test_nn.py", "cuda", 10, "nn modules on CUDA"),
@@ -93,7 +95,7 @@ SGPU_TESTS: list[tuple[str, str | None, float, str]] = [
     ("test/inductor/test_torchinductor.py", "cuda", 15, "inductor CUDA"),
 ]
 
-MGPU_TESTS: list[tuple[str, str | None, float, str]] = [
+MGPU_TESTS: list[tuple[str, Optional[str], float, str]] = [
     ("test/distributed/test_c10d_common.py", None, 15, "c10d common"),
     ("test/distributed/test_c10d_nccl.py", None, 15, "c10d NCCL"),
     ("test/distributed/fsdp/test_fsdp_core.py", None, 20, "FSDP core"),

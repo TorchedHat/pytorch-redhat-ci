@@ -12,6 +12,8 @@ Usage:
     python targeted_tests.py OLD_SHA NEW_SHA --json
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -21,6 +23,7 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 
 CATEGORIES = ("cpu", "inductor", "sgpu", "mgpu")
