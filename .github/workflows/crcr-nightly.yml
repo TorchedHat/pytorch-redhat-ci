@@ -152,6 +152,11 @@ jobs:
           echo "mode=${MODE}" >> "$GITHUB_OUTPUT"
 
       - name: Determination summary
+        env:
+          CPU_B64: ${{ steps.resolve.outputs.cpu_tests }}
+          INDUCTOR_B64: ${{ steps.resolve.outputs.inductor_tests }}
+          SGPU_B64: ${{ steps.resolve.outputs.sgpu_tests }}
+          MGPU_B64: ${{ steps.resolve.outputs.mgpu_tests }}
         run: |
           echo "## CRCR Nightly: Test Determination" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -160,9 +165,11 @@ jobs:
           echo "| Mode | \`${{ steps.resolve.outputs.mode }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Current SHA | \`${PYTORCH_SHA:0:10}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Previous SHA | \`${PREV_SHA:0:10}\` |" >> $GITHUB_STEP_SUMMARY
-          for cat in cpu inductor sgpu mgpu; do
-            COUNT=$(echo "${{ steps.resolve.outputs[format('{0}_tests', cat)] }}" | base64 -d 2>/dev/null | grep -c '.' || echo 0)
-            echo "| ${cat} tests | ${COUNT} |" >> $GITHUB_STEP_SUMMARY
+          for pair in "cpu:$CPU_B64" "inductor:$INDUCTOR_B64" "sgpu:$SGPU_B64" "mgpu:$MGPU_B64"; do
+            NAME="${pair%%:*}"
+            B64="${pair#*:}"
+            COUNT=$(echo "$B64" | base64 -d 2>/dev/null | grep -c '.' || echo 0)
+            echo "| ${NAME} tests | ${COUNT} |" >> $GITHUB_STEP_SUMMARY
           done
 
   cpu-tests:
