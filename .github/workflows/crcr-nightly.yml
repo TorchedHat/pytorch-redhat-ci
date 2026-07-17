@@ -180,7 +180,7 @@ jobs:
           echo "| Category | cpu |" >> $GITHUB_STEP_SUMMARY
 
   inductor-tests:
-    needs: build
+    needs: [build, cpu-tests]
     runs-on: linux.rhel96
     timeout-minutes: 120
     env:
@@ -250,7 +250,7 @@ jobs:
           echo "| Category | inductor |" >> $GITHUB_STEP_SUMMARY
 
   sgpu-tests:
-    needs: build
+    needs: [build, inductor-tests]
     runs-on: linux.rhel96
     timeout-minutes: 90
     env:
@@ -339,7 +339,7 @@ jobs:
           echo "| Category | sgpu |" >> $GITHUB_STEP_SUMMARY
 
   mgpu-tests:
-    needs: build
+    needs: [build, sgpu-tests]
     runs-on: linux.rhel96
     timeout-minutes: 90
     env:
