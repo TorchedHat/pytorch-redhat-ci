@@ -13,7 +13,6 @@ env:
   NIGHTLY_BRANCH: nightly
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
@@ -248,14 +247,6 @@ jobs:
             fi
           "
 
-      - name: Report results to CRCR
-        if: always()
-        continue-on-error: true
-        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
-        with:
-          status: completed
-          conclusion: ${{ job.status }}
-
       - name: Test summary
         if: always()
         run: |
@@ -319,14 +310,6 @@ jobs:
               exit 1
             fi
           "
-
-      - name: Report results to CRCR
-        if: always()
-        continue-on-error: true
-        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
-        with:
-          status: completed
-          conclusion: ${{ job.status }}
 
       - name: Test summary
         if: always()
@@ -406,14 +389,6 @@ jobs:
               exit 1
             fi
           "
-
-      - name: Report results to CRCR
-        if: always() && steps.gpu_check.outputs.gpu_available == 'true'
-        continue-on-error: true
-        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
-        with:
-          status: completed
-          conclusion: ${{ job.status }}
 
       - name: Test summary
         if: always()
@@ -499,14 +474,6 @@ jobs:
               exit 1
             fi
           "
-
-      - name: Report results to CRCR
-        if: always() && steps.gpu_check.outputs.mgpu_available == 'true'
-        continue-on-error: true
-        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
-        with:
-          status: completed
-          conclusion: ${{ job.status }}
 
       - name: Test summary
         if: always()
