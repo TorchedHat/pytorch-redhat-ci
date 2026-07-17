@@ -52,7 +52,7 @@ def _test_name(test_file: str) -> str:
     name = test_file.replace("test/", "", 1)
     if name.endswith(".py"):
         name = name[:-3]
-    return name.replace("/", ".")
+    return name
 
 
 @dataclass
