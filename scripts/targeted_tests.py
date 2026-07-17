@@ -118,7 +118,7 @@ SUBMODULE_MAP: list[tuple[str, str, str | None, float]] = [
     ("torch/nn/utils/weight_norm.py", "test/test_nn.py", "weight_norm", 2),
 
     # torch/nn/attention/
-    ("torch/nn/attention/", "test/nn/attention/", None, 10),
+    ("torch/nn/attention/", "test/nn/test_multihead_attention.py", None, 5),
 
     # torch/autograd/
     ("torch/autograd/", "test/test_autograd.py", None, 30),
@@ -154,9 +154,9 @@ SUBMODULE_MAP: list[tuple[str, str, str | None, float]] = [
     ("torch/_functorch/", "test/functorch/test_eager_transforms.py", None, 10),
 
     # torch/distributed/
-    ("torch/distributed/fsdp/", "test/distributed/fsdp/", None, 20),
-    ("torch/distributed/_tensor/", "test/distributed/_tensor/", None, 15),
-    ("torch/distributed/pipeline/", "test/distributed/pipeline/", None, 10),
+    ("torch/distributed/fsdp/", "test/distributed/fsdp/test_fsdp_core.py", None, 20),
+    ("torch/distributed/_tensor/", "test/distributed/_tensor/test_dtensor.py", None, 15),
+    ("torch/distributed/pipeline/", "test/distributed/test_c10d_common.py", None, 10),
     ("torch/distributed/", "test/distributed/test_c10d_common.py", None, 15),
 
     # torch/sparse/
@@ -202,13 +202,13 @@ SUBMODULE_MAP: list[tuple[str, str, str | None, float]] = [
     ("torch/tensor.py", "test/test_torch.py", None, 30),
     ("torch/_C/", "test/test_torch.py", None, 30),
     ("torch/serialization.py", "test/test_serialization.py", None, 10),
-    ("torch/jit/", "test/jit/", None, 20),
-    ("torch/onnx/", "test/onnx/", None, 15),
+    ("torch/jit/", "test/test_jit.py", None, 20),
+    ("torch/onnx/", "test/onnx/test_onnx.py", None, 15),
     ("torch/cuda/", "test/test_cuda.py", None, 15),
     ("torch/testing/", "test/test_testing.py", None, 5),
     ("torch/utils/data/", "test/test_dataloader.py", None, 10),
     ("torch/utils/checkpoint.py", "test/test_autograd.py", "checkpoint", 5),
-    ("torch/profiler/", "test/profiler/", None, 10),
+    ("torch/profiler/", "test/profiler/test_profiler.py", None, 10),
 
     # Build / codegen
     ("torchgen/", "test/test_codegen.py", None, 5),
