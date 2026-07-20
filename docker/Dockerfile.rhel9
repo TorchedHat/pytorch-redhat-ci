@@ -156,6 +156,9 @@ ENV USE_SYSTEM_NCCL=1
 ENV CMAKE_LINKER="lld"
 ENV LDFLAGS="-fuse-ld=lld"
 
+# Generate compile_commands.json for TorchTalk structural analysis
+ENV CMAKE_EXPORT_COMPILE_COMMANDS=ON
+
 # Enable F16C and AVX2 for half-precision float16 support on x86-64
 ENV CFLAGS="-mf16c -mavx2"
 ENV CXXFLAGS="-mf16c -mavx2"
