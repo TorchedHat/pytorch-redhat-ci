@@ -120,17 +120,18 @@ jobs:
           MODE="full"
           if [ -n "${PREV_SHA}" ]; then
             echo "Delta mode: comparing ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
-            # Run targeted_tests.py inside the built image (has /pytorch checkout)
+            # Run merge_test_results.py inside the built image
+            # This invokes both targeted_tests.py (heuristic) and torchtalk_tests.py (structural)
+            # and returns their union for maximum coverage
             for cat in cpu inductor sgpu mgpu; do
               CMDS=$(podman run --rm -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c "
                 source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
                 cd /pytorch
-                python /ci_scripts/targeted_tests.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category ${cat} --commands-only 2>/dev/null
+                python /ci_scripts/merge_test_results.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category ${cat} --commands-only 2>/dev/null
               " || true)
               if [ -n "$CMDS" ]; then
                 MODE="delta"
               fi
-              # Store as base64 to preserve newlines in GitHub outputs
               echo "${cat}_tests=$(echo "$CMDS" | base64 -w0)" >> "$GITHUB_OUTPUT"
             done
           fi
@@ -143,7 +144,6 @@ jobs:
             if [ -z "$DECODED" ]; then
               echo "No delta tests for ${cat}, using full suite"
               FULL=$(python scripts/test_config.py "${cat}" --commands-only)
-              # Overwrite the output
               echo "${cat}_tests=$(echo "$FULL" | base64 -w0)" >> "$GITHUB_OUTPUT"
             fi
           done
