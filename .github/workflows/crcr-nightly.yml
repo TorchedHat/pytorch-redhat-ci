@@ -99,7 +99,7 @@ jobs:
   determine-tests:
     needs: build
     runs-on: linux.rhel96
-    timeout-minutes: 30
+    timeout-minutes: 15
     outputs:
       cpu_tests: ${{ steps.resolve.outputs.cpu_tests }}
       inductor_tests: ${{ steps.resolve.outputs.inductor_tests }}
@@ -120,17 +120,19 @@ jobs:
           MODE="full"
           if [ -n "${PREV_SHA}" ]; then
             echo "Delta mode: comparing ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
-            # Single container run: install TorchTalk once, resolve all categories
+            # Heuristic-only: run targeted_tests.py inside the container (has /pytorch checkout)
+            # TorchTalk is disabled — pip install from git hangs on this runner
             ALL_RESULTS=$(podman run --rm -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c "
               source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
-              pip install --quiet git+https://github.com/TorchedHat/torchtalk.git@main 2>/dev/null || true
               cd /pytorch
               for cat in cpu inductor sgpu mgpu; do
-                CMDS=\$(python /ci_scripts/merge_test_results.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category \$cat --commands-only 2>/dev/null)
+                CMDS=\$(python /ci_scripts/targeted_tests.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category \$cat --commands-only 2>&1) || true
                 echo \":::\${cat}:::\"
                 echo \"\$CMDS\"
               done
-            " || true)
+            " 2>&1) || true
+            echo "Raw output from container:"
+            echo "$ALL_RESULTS"
 
             # Parse results by category delimiter
             for cat in cpu inductor sgpu mgpu; do
@@ -149,7 +151,7 @@ jobs:
             DECODED=$(echo "$CURRENT" | base64 -d 2>/dev/null || true)
             if [ -z "$DECODED" ]; then
               echo "No delta tests for ${cat}, using full suite"
-              FULL=$(python scripts/test_config.py "${cat}" --commands-only)
+              FULL=$(python3 scripts/test_config.py "${cat}" --commands-only)
               echo "${cat}_tests=$(echo "$FULL" | base64 -w0)" >> "$GITHUB_OUTPUT"
             fi
           done
