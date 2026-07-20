@@ -217,9 +217,8 @@ SUBMODULE_MAP: list[tuple[str, str, str | None, float]] = [
     ("torch/utils/checkpoint.py", "test/test_autograd.py", "checkpoint", 5),
     ("torch/profiler/", "test/profiler/test_profiler.py", None, 10),
 
-    # Build / codegen
-    ("torchgen/", "test/test_codegen.py", None, 5),
-    ("aten/src/ATen/native/native_functions.yaml", "test/test_codegen.py", None, 5),
+    # Build / codegen — test_codegen lives under tools/test/ and is not
+    # registered in run_test.py, so we skip it here.
 ]
 
 
