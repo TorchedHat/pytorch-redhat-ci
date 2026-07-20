@@ -77,8 +77,15 @@ def run_torchtalk_affected(
 ) -> list[dict]:
     """Use TorchTalk's affected analysis to find impacted test files.
 
+    Depth can be overridden via TORCHTALK_DEPTH environment variable.
     Returns a list of {"file": str, "included_classes": list[str]} dicts.
     """
+    import os
+
+    env_depth = os.environ.get("TORCHTALK_DEPTH")
+    if env_depth and env_depth.isdigit():
+        depth = int(env_depth)
+
     try:
         from torchtalk.indexer import _init_from_source, _state
         from torchtalk.analysis.affected import affected_tests, symbols_in_file
