@@ -62,10 +62,25 @@ def run_targeted_tests(
 def run_torchtalk_tests(
     old_sha: str, new_sha: str, pytorch_dir: str, category: Optional[str]
 ) -> list[str]:
-    """Run torchtalk_tests.py and capture its output."""
+    """Run torchtalk_tests.py and capture its output.
+
+    Returns empty list if TorchTalk is not available (graceful degradation).
+    """
     script = Path(__file__).parent / "torchtalk_tests.py"
     if not script.exists():
         print("torchtalk_tests.py not found, skipping structural pass", file=sys.stderr)
+        return []
+
+    # Quick check: is torchtalk importable?
+    check = subprocess.run(
+        [sys.executable, "-c", "import torchtalk"],
+        capture_output=True,
+    )
+    if check.returncode != 0:
+        print(
+            "torchtalk package not installed, skipping structural pass",
+            file=sys.stderr,
+        )
         return []
 
     cmd = [
