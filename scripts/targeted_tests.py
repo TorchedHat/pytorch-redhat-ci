@@ -16,14 +16,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 CATEGORIES = ("cpu", "inductor", "sgpu", "mgpu")
@@ -258,16 +256,6 @@ def get_changed_files(pytorch_dir: str, old_sha: str, new_sha: str) -> list[str]
     )
     files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
     return files
-
-
-def get_diff_stat(pytorch_dir: str, old_sha: str, new_sha: str) -> str:
-    """Get diffstat summary."""
-    result = subprocess.run(
-        ["git", "diff", "--stat", old_sha, new_sha],
-        capture_output=True, text=True, check=True,
-        cwd=pytorch_dir,
-    )
-    return result.stdout.strip()
 
 
 def clone_or_fetch_pytorch(pytorch_dir: str | None, old_sha: str, new_sha: str) -> str:
