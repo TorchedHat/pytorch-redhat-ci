@@ -120,15 +120,21 @@ jobs:
           MODE="full"
           if [ -n "${PREV_SHA}" ]; then
             echo "Delta mode: comparing ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
-            # Install TorchTalk at runtime and run the unified merger
-            # If TorchTalk install fails, merger falls back to heuristic only
+            # Single container run: install TorchTalk once, resolve all categories
+            ALL_RESULTS=$(podman run --rm -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c "
+              source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
+              pip install --quiet git+https://github.com/TorchedHat/torchtalk.git@main 2>/dev/null || true
+              cd /pytorch
+              for cat in cpu inductor sgpu mgpu; do
+                CMDS=\$(python /ci_scripts/merge_test_results.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category \$cat --commands-only 2>/dev/null)
+                echo \":::\${cat}:::\"
+                echo \"\$CMDS\"
+              done
+            " || true)
+
+            # Parse results by category delimiter
             for cat in cpu inductor sgpu mgpu; do
-              CMDS=$(podman run --rm -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c "
-                source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
-                pip install --quiet git+https://github.com/TorchedHat/torchtalk.git@main 2>/dev/null || true
-                cd /pytorch
-                python /ci_scripts/merge_test_results.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category ${cat} --commands-only 2>/dev/null
-              " || true)
+              CMDS=$(echo "$ALL_RESULTS" | sed -n "/:::${cat}:::/,/:::.*:::/{ /:::/d; p; }" | sed '/^$/d')
               if [ -n "$CMDS" ]; then
                 MODE="delta"
               fi
