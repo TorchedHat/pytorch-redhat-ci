@@ -185,6 +185,7 @@ except Exception as e:
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Mode | \`${{ steps.resolve.outputs.mode }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Strategy | heuristic + TorchTalk (union) |" >> $GITHUB_STEP_SUMMARY
           echo "| Current SHA | \`${PYTORCH_SHA:0:10}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Previous SHA | \`${PREV_SHA:0:10}\` |" >> $GITHUB_STEP_SUMMARY
           for pair in "cpu:$CPU_B64" "inductor:$INDUCTOR_B64" "sgpu:$SGPU_B64" "mgpu:$MGPU_B64"; do
