@@ -99,7 +99,7 @@ jobs:
   determine-tests:
     needs: build
     runs-on: linux.rhel96
-    timeout-minutes: 10
+    timeout-minutes: 30
     outputs:
       cpu_tests: ${{ steps.resolve.outputs.cpu_tests }}
       inductor_tests: ${{ steps.resolve.outputs.inductor_tests }}
