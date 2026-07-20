@@ -210,7 +210,7 @@ SUBMODULE_MAP: list[tuple[str, str, str | None, float]] = [
     ("torch/_C/", "test/test_torch.py", None, 30),
     ("torch/serialization.py", "test/test_serialization.py", None, 10),
     ("torch/jit/", "test/test_jit.py", None, 20),
-    ("torch/onnx/", "test/onnx/test_onnx.py", None, 15),
+    ("torch/onnx/", "test/onnx/test_onnx_opset.py", None, 15),
     ("torch/cuda/", "test/test_cuda.py", None, 15),
     ("torch/testing/", "test/test_testing.py", None, 5),
     ("torch/utils/data/", "test/test_dataloader.py", None, 10),
