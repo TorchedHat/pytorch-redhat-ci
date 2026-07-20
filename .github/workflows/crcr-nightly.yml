@@ -120,14 +120,13 @@ jobs:
           MODE="full"
           if [ -n "${PREV_SHA}" ]; then
             echo "Delta mode: comparing ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
-            # Heuristic-only: TorchTalk structural analysis hangs on large
-            # PyTorch checkouts. Use targeted_tests.py until TorchTalk is
-            # proven to work within the container environment.
+            # Heuristic + TorchTalk structural analysis (C++ call graph is
+            # pre-built and cached inside the image after the first run)
             ALL_RESULTS=$(podman run --rm -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c "
               source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
               cd /pytorch
               for cat in cpu inductor sgpu mgpu; do
-                CMDS=\$(python /ci_scripts/targeted_tests.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category \$cat --commands-only 2>&1) || true
+                CMDS=\$(python /ci_scripts/merge_test_results.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category \$cat --commands-only 2>&1) || true
                 echo \":::\${cat}:::\"
                 echo \"\$CMDS\"
               done

@@ -87,7 +87,7 @@ def run_torchtalk_affected(
         depth = int(env_depth)
 
     try:
-        from torchtalk.indexer import _init_from_source, _state
+        from torchtalk.indexer import build_index, _state
         from torchtalk.analysis.affected import affected_tests, symbols_in_file
     except ImportError as e:
         print(
@@ -102,7 +102,8 @@ def run_torchtalk_affected(
         )
         return []
 
-    _init_from_source(pytorch_dir)
+    # build_index waits for the C++ call graph background thread to complete
+    build_index(pytorch_dir, wait_for_cpp=True)
 
     if _state.cpp_extractor is None:
         print("TorchTalk: C++ call graph not available", file=sys.stderr)
