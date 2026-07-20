@@ -46,6 +46,21 @@ Triggered by CRCR `repository_dispatch` (`pull_request` type) or manually via `w
 
 Currently at **L1** — dispatches are received and builds run, but results are not yet reported back to the [PyTorch HUD](https://hud.pytorch.org). Once stable, this will be promoted to L2+ with HUD callback reporting.
 
+## Test Determination
+
+The nightly workflow uses a dual-strategy approach for delta-based test selection:
+
+| Tool | Strategy | Best For |
+|------|----------|----------|
+| `targeted_tests.py` | File-path heuristic mapping | Python file changes, test moves |
+| `torchtalk_tests.py` | C++ call graph + binding analysis | C++ kernel/op changes |
+| `merge_test_results.py` | Union of both | Combined coverage |
+
+The unified merger (`merge_test_results.py`) runs both tools and deduplicates results. If TorchTalk is not installed or its index is unavailable, the system gracefully falls back to heuristic-only mode.
+
+**Environment variables:**
+- `TORCHTALK_DEPTH` — Override call graph walk depth (default: 3)
+
 ## Prerequisites
 
 1. The `linux.rhel96` self-hosted runner must be registered and online.

@@ -1,0 +1,12 @@
+# TorchTalk Integration for Delta Test Selection
+#
+# TorchTalk provides structural C++ call graph analysis for PyTorch.
+# It traces function calls through libclang, understands pybind11 bindings,
+# and maps C++ changes to affected Python test files with high precision.
+#
+# Used alongside targeted_tests.py for comprehensive test determination:
+#   - targeted_tests.py: fast file-path heuristic mapping
+#   - TorchTalk: structural call graph + binding analysis
+#   - Final result: union of both for maximum coverage
+
+torchtalk @ git+https://github.com/TorchedHat/torchtalk.git@main
