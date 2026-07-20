@@ -186,6 +186,12 @@ RUN source /miniconda/etc/profile.d/conda.sh && \
     export CMAKE_PREFIX_PATH="${CONDA_PREFIX:-'$(dirname $(which conda))/../'}:${CMAKE_PREFIX_PATH}" && \
     .ci/pytorch/build.sh
 
+# Install TorchTalk for structural C++ test determination
+RUN source /miniconda/etc/profile.d/conda.sh && \
+    conda activate ${CONDA_ENV} && \
+    conda install -y -c conda-forge libclang && \
+    pip install git+https://github.com/TorchedHat/torchtalk.git@main
+
 # Set default conda environment for interactive use
 ENV CONDA_DEFAULT_ENV=${CONDA_ENV}
 RUN echo "conda activate ${CONDA_ENV}" >> ~/.bashrc
