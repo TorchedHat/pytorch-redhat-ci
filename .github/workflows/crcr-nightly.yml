@@ -114,41 +114,18 @@ jobs:
       - name: Checkout CI repo
         uses: actions/checkout@v4
 
-      - name: Pre-warm TorchTalk index
-        run: |
-          if [ -n "${PREV_SHA}" ]; then
-            echo "Building TorchTalk index for faster structural analysis..."
-            podman run --rm -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c "
-              source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
-              cd /pytorch
-              # Build TorchTalk index from compile_commands.json (generated during build)
-              if [ -f build/compile_commands.json ]; then
-                python -c '
-from torchtalk.indexer import _init_from_source
-try:
-    _init_from_source(\"/pytorch\")
-    print(\"TorchTalk index built successfully\")
-except Exception as e:
-    print(f\"TorchTalk index build skipped: {e}\")
-' 2>&1 || echo 'TorchTalk indexing not available, will use heuristic only'
-              else
-                echo 'compile_commands.json not found, TorchTalk will be heuristic-only'
-              fi
-            " || echo "TorchTalk pre-warm failed (non-fatal)"
-          fi
-
       - name: Resolve test lists
         id: resolve
         run: |
           MODE="full"
           if [ -n "${PREV_SHA}" ]; then
             echo "Delta mode: comparing ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
-            # Run merge_test_results.py inside the built image
-            # This invokes both targeted_tests.py (heuristic) and torchtalk_tests.py (structural)
-            # and returns their union for maximum coverage
+            # Install TorchTalk at runtime and run the unified merger
+            # If TorchTalk install fails, merger falls back to heuristic only
             for cat in cpu inductor sgpu mgpu; do
               CMDS=$(podman run --rm -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c "
                 source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
+                pip install --quiet git+https://github.com/TorchedHat/torchtalk.git@main 2>/dev/null || true
                 cd /pytorch
                 python /ci_scripts/merge_test_results.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category ${cat} --commands-only 2>/dev/null
               " || true)
