@@ -82,9 +82,15 @@ def run_torchtalk_affected(
     try:
         from torchtalk.indexer import _init_from_source, _state
         from torchtalk.analysis.affected import affected_tests, symbols_in_file
-    except ImportError:
+    except ImportError as e:
         print(
-            "TorchTalk not installed, skipping structural analysis",
+            f"TorchTalk not installed ({e}), skipping structural analysis",
+            file=sys.stderr,
+        )
+        return []
+    except Exception as e:
+        print(
+            f"TorchTalk import failed unexpectedly ({e}), skipping",
             file=sys.stderr,
         )
         return []
