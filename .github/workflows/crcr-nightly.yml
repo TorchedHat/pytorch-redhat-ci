@@ -247,6 +247,7 @@ jobs:
           echo "Running ${CMD_COUNT} CPU test command(s)"
           OUTPUT=$(podman run --rm \
             -e CONTINUE_THROUGH_ERROR=True \
+            -e CUDA_VISIBLE_DEVICES="" \
             "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
@@ -344,6 +345,7 @@ jobs:
           echo "Running ${CMD_COUNT} inductor test command(s)"
           OUTPUT=$(podman run --rm \
             -e CONTINUE_THROUGH_ERROR=True \
+            -e CUDA_VISIBLE_DEVICES="" \
             "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
