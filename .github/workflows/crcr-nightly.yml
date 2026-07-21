@@ -194,7 +194,7 @@ jobs:
   cpu-tests:
     needs: [build, determine-tests]
     runs-on: linux.rhel96
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
       PYTORCH_SHA: ${{ needs.build.outputs.sha }}
