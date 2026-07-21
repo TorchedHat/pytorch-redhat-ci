@@ -125,10 +125,21 @@ jobs:
             ALL_RESULTS=$(podman run --rm -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c "
               source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
               cd /pytorch
+              # Build valid test name list from run_test.py
+              VALID_TESTS=\$(python test/run_test.py -i __probe__ 2>&1 | grep 'invalid choice' | sed \"s/.*choose from //\" | tr -d \")'\" | tr ',' '\n' | sed 's/^ //' || true)
               for cat in cpu inductor sgpu mgpu; do
-                CMDS=\$(python /ci_scripts/merge_test_results.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category \$cat --commands-only 2>/dev/null) || true
+                RAW=\$(python /ci_scripts/merge_test_results.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category \$cat --commands-only 2>/dev/null) || true
+                # Filter: keep only commands whose -i test name is in VALID_TESTS
+                CMDS=\"\"
+                while IFS= read -r line; do
+                  [ -z \"\$line\" ] && continue
+                  TEST_NAME=\$(echo \"\$line\" | sed -n 's/.*-i \([^ ]*\).*/\1/p')
+                  if [ -z \"\$TEST_NAME\" ] || echo \"\$VALID_TESTS\" | grep -qxF \"\$TEST_NAME\"; then
+                    CMDS=\"\${CMDS}\${line}\n\"
+                  fi
+                done <<< \"\$RAW\"
                 echo \":::\${cat}:::\"
-                echo \"\$CMDS\"
+                echo -e \"\$CMDS\"
               done
             ") || true
             echo "Raw output from container:"
