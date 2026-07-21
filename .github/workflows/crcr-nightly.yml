@@ -230,19 +230,27 @@ jobs:
           '
 
       - name: Run CPU test suite
+        id: cpu_run
         env:
           TEST_LIST_B64: ${{ needs.determine-tests.outputs.cpu_tests }}
         run: |
           COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
           if [ -z "$COMMANDS" ]; then
             echo "No CPU tests to run"
+            echo "passed=0" >> "$GITHUB_OUTPUT"
+            echo "failed=0" >> "$GITHUB_OUTPUT"
+            echo "errors=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "Running $(echo "$COMMANDS" | wc -l) CPU test command(s)"
-          podman run --rm "${IMAGE_TAG}" bash -c "
+          CMD_COUNT=$(echo "$COMMANDS" | wc -l)
+          echo "Running ${CMD_COUNT} CPU test command(s)"
+          OUTPUT=$(podman run --rm \
+            -e CONTINUE_THROUGH_ERROR=True \
+            "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
+            export CONTINUE_THROUGH_ERROR=True
             PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
               [ -z \"\$cmd\" ] && continue
@@ -258,14 +266,29 @@ jobs:
               fi
             done <<< '$COMMANDS'
             echo ''
-            echo '============================================================'
-            echo \"CPU Tests: \${PASSED} passed, \${FAILED} failed\"
-            echo '============================================================'
+            echo ':::SUMMARY:::'
+            echo \"PASSED=\${PASSED}\"
+            echo \"FAILED=\${FAILED}\"
             if [ \$FAILED -gt 0 ]; then
-              echo -e \"Failed tests:\${ERRORS}\"
-              exit 1
+              echo -e \"ERRORS=\${ERRORS}\"
             fi
-          "
+          " 2>&1) || true
+          echo "$OUTPUT"
+
+          PASSED=$(echo "$OUTPUT" | grep '^PASSED=' | tail -1 | cut -d= -f2)
+          FAILED=$(echo "$OUTPUT" | grep '^FAILED=' | tail -1 | cut -d= -f2)
+          FAIL_LIST=$(echo "$OUTPUT" | grep '^  FAIL:' || true)
+          echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
+          echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'errors<<ERRORS_EOF'
+            echo "$FAIL_LIST"
+            echo 'ERRORS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "${FAILED:-0}" -gt 0 ]; then
+            exit 1
+          fi
 
       - name: Test summary
         if: always()
@@ -276,7 +299,17 @@ jobs:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| Mode | \`${{ needs.determine-tests.outputs.mode }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Passed | ${{ steps.cpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | ${{ steps.cpu_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Result | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
+          ERRORS="${{ steps.cpu_run.outputs.errors }}"
+          if [ -n "$ERRORS" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$ERRORS" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
 
   inductor-tests:
     needs: [build, determine-tests, cpu-tests]
@@ -294,19 +327,27 @@ jobs:
           fi
 
       - name: Run inductor test suite
+        id: inductor_run
         env:
           TEST_LIST_B64: ${{ needs.determine-tests.outputs.inductor_tests }}
         run: |
           COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
           if [ -z "$COMMANDS" ]; then
             echo "No inductor tests to run"
+            echo "passed=0" >> "$GITHUB_OUTPUT"
+            echo "failed=0" >> "$GITHUB_OUTPUT"
+            echo "errors=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "Running $(echo "$COMMANDS" | wc -l) inductor test command(s)"
-          podman run --rm "${IMAGE_TAG}" bash -c "
+          CMD_COUNT=$(echo "$COMMANDS" | wc -l)
+          echo "Running ${CMD_COUNT} inductor test command(s)"
+          OUTPUT=$(podman run --rm \
+            -e CONTINUE_THROUGH_ERROR=True \
+            "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
+            export CONTINUE_THROUGH_ERROR=True
             PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
               [ -z \"\$cmd\" ] && continue
@@ -322,14 +363,29 @@ jobs:
               fi
             done <<< '$COMMANDS'
             echo ''
-            echo '============================================================'
-            echo \"Inductor Tests: \${PASSED} passed, \${FAILED} failed\"
-            echo '============================================================'
+            echo ':::SUMMARY:::'
+            echo \"PASSED=\${PASSED}\"
+            echo \"FAILED=\${FAILED}\"
             if [ \$FAILED -gt 0 ]; then
-              echo -e \"Failed tests:\${ERRORS}\"
-              exit 1
+              echo -e \"ERRORS=\${ERRORS}\"
             fi
-          "
+          " 2>&1) || true
+          echo "$OUTPUT"
+
+          PASSED=$(echo "$OUTPUT" | grep '^PASSED=' | tail -1 | cut -d= -f2)
+          FAILED=$(echo "$OUTPUT" | grep '^FAILED=' | tail -1 | cut -d= -f2)
+          FAIL_LIST=$(echo "$OUTPUT" | grep '^  FAIL:' || true)
+          echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
+          echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'errors<<ERRORS_EOF'
+            echo "$FAIL_LIST"
+            echo 'ERRORS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "${FAILED:-0}" -gt 0 ]; then
+            exit 1
+          fi
 
       - name: Test summary
         if: always()
@@ -339,7 +395,17 @@ jobs:
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Passed | ${{ steps.inductor_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | ${{ steps.inductor_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Result | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
+          ERRORS="${{ steps.inductor_run.outputs.errors }}"
+          if [ -n "$ERRORS" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$ERRORS" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
 
   sgpu-tests:
     needs: [build, determine-tests, inductor-tests]
@@ -372,6 +438,7 @@ jobs:
           fi
 
       - name: Run single-GPU test suite
+        id: sgpu_run
         if: steps.gpu_check.outputs.gpu_available == 'true'
         env:
           TEST_LIST_B64: ${{ needs.determine-tests.outputs.sgpu_tests }}
@@ -379,13 +446,20 @@ jobs:
           COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
           if [ -z "$COMMANDS" ]; then
             echo "No sgpu tests to run"
+            echo "passed=0" >> "$GITHUB_OUTPUT"
+            echo "failed=0" >> "$GITHUB_OUTPUT"
+            echo "errors=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "Running $(echo "$COMMANDS" | wc -l) single-GPU test command(s)"
-          podman run --rm --device nvidia.com/gpu=all "${IMAGE_TAG}" bash -c "
+          CMD_COUNT=$(echo "$COMMANDS" | wc -l)
+          echo "Running ${CMD_COUNT} single-GPU test command(s)"
+          OUTPUT=$(podman run --rm --device nvidia.com/gpu=all \
+            -e CONTINUE_THROUGH_ERROR=True \
+            "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
+            export CONTINUE_THROUGH_ERROR=True
             PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
               [ -z \"\$cmd\" ] && continue
@@ -401,14 +475,29 @@ jobs:
               fi
             done <<< '$COMMANDS'
             echo ''
-            echo '============================================================'
-            echo \"Single-GPU Tests: \${PASSED} passed, \${FAILED} failed\"
-            echo '============================================================'
+            echo ':::SUMMARY:::'
+            echo \"PASSED=\${PASSED}\"
+            echo \"FAILED=\${FAILED}\"
             if [ \$FAILED -gt 0 ]; then
-              echo -e \"Failed tests:\${ERRORS}\"
-              exit 1
+              echo -e \"ERRORS=\${ERRORS}\"
             fi
-          "
+          " 2>&1) || true
+          echo "$OUTPUT"
+
+          PASSED=$(echo "$OUTPUT" | grep '^PASSED=' | tail -1 | cut -d= -f2)
+          FAILED=$(echo "$OUTPUT" | grep '^FAILED=' | tail -1 | cut -d= -f2)
+          FAIL_LIST=$(echo "$OUTPUT" | grep '^  FAIL:' || true)
+          echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
+          echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'errors<<ERRORS_EOF'
+            echo "$FAIL_LIST"
+            echo 'ERRORS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "${FAILED:-0}" -gt 0 ]; then
+            exit 1
+          fi
 
       - name: Test summary
         if: always()
@@ -419,7 +508,17 @@ jobs:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| GPUs | ${{ steps.gpu_check.outputs.gpu_count }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Passed | ${{ steps.sgpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | ${{ steps.sgpu_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Result | \`${{ steps.gpu_check.outputs.gpu_available == 'true' && job.status || 'skipped (no GPU)' }}\` |" >> $GITHUB_STEP_SUMMARY
+          ERRORS="${{ steps.sgpu_run.outputs.errors }}"
+          if [ -n "$ERRORS" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$ERRORS" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
 
   mgpu-tests:
     needs: [build, determine-tests, sgpu-tests]
@@ -457,6 +556,7 @@ jobs:
           fi
 
       - name: Run multi-GPU test suite
+        id: mgpu_run
         if: steps.gpu_check.outputs.mgpu_available == 'true'
         env:
           TEST_LIST_B64: ${{ needs.determine-tests.outputs.mgpu_tests }}
@@ -464,13 +564,20 @@ jobs:
           COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
           if [ -z "$COMMANDS" ]; then
             echo "No mgpu tests to run"
+            echo "passed=0" >> "$GITHUB_OUTPUT"
+            echo "failed=0" >> "$GITHUB_OUTPUT"
+            echo "errors=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "Running $(echo "$COMMANDS" | wc -l) multi-GPU test command(s)"
-          podman run --rm --device nvidia.com/gpu=all "${IMAGE_TAG}" bash -c "
+          CMD_COUNT=$(echo "$COMMANDS" | wc -l)
+          echo "Running ${CMD_COUNT} multi-GPU test command(s)"
+          OUTPUT=$(podman run --rm --device nvidia.com/gpu=all \
+            -e CONTINUE_THROUGH_ERROR=True \
+            "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
+            export CONTINUE_THROUGH_ERROR=True
             PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
               [ -z \"\$cmd\" ] && continue
@@ -486,14 +593,29 @@ jobs:
               fi
             done <<< '$COMMANDS'
             echo ''
-            echo '============================================================'
-            echo \"Multi-GPU Tests: \${PASSED} passed, \${FAILED} failed\"
-            echo '============================================================'
+            echo ':::SUMMARY:::'
+            echo \"PASSED=\${PASSED}\"
+            echo \"FAILED=\${FAILED}\"
             if [ \$FAILED -gt 0 ]; then
-              echo -e \"Failed tests:\${ERRORS}\"
-              exit 1
+              echo -e \"ERRORS=\${ERRORS}\"
             fi
-          "
+          " 2>&1) || true
+          echo "$OUTPUT"
+
+          PASSED=$(echo "$OUTPUT" | grep '^PASSED=' | tail -1 | cut -d= -f2)
+          FAILED=$(echo "$OUTPUT" | grep '^FAILED=' | tail -1 | cut -d= -f2)
+          FAIL_LIST=$(echo "$OUTPUT" | grep '^  FAIL:' || true)
+          echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
+          echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'errors<<ERRORS_EOF'
+            echo "$FAIL_LIST"
+            echo 'ERRORS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "${FAILED:-0}" -gt 0 ]; then
+            exit 1
+          fi
 
       - name: Test summary
         if: always()
@@ -504,4 +626,14 @@ jobs:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| GPUs | ${{ steps.gpu_check.outputs.gpu_count }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Passed | ${{ steps.mgpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | ${{ steps.mgpu_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Result | \`${{ steps.gpu_check.outputs.mgpu_available == 'true' && job.status || 'skipped (need 2+ GPUs)' }}\` |" >> $GITHUB_STEP_SUMMARY
+          ERRORS="${{ steps.mgpu_run.outputs.errors }}"
+          if [ -n "$ERRORS" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$ERRORS" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
