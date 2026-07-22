@@ -232,6 +232,7 @@ jobs:
         run: |
           podman run --rm "${IMAGE_TAG}" bash -c '
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
+            cd /tmp
             python -c "
           import torch, tempfile, os
           print(f\"PyTorch {torch.__version__} loaded\")
