@@ -118,6 +118,10 @@ jobs:
         id: resolve
         run: |
           MODE="full"
+          # Tests that unconditionally require a working CUDA driver
+          # (they call torch.Stream() or similar without guarding)
+          CUDA_ONLY_TESTS="test_overrides"
+
           if [ -n "${PREV_SHA}" ]; then
             echo "Delta mode: comparing ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
             # Heuristic + TorchTalk structural analysis (C++ call graph is
@@ -148,6 +152,24 @@ jobs:
             # Parse results by category delimiter
             for cat in cpu inductor sgpu mgpu; do
               CMDS=$(echo "$ALL_RESULTS" | sed -n "/:::${cat}:::/,/:::.*:::/{ /:::/d; p; }" | sed '/^$/d')
+              # Exclude CUDA-only tests from cpu/inductor categories
+              if [ "$cat" = "cpu" ] || [ "$cat" = "inductor" ]; then
+                FILTERED=""
+                while IFS= read -r line; do
+                  [ -z "$line" ] && continue
+                  SKIP=false
+                  for excl in $CUDA_ONLY_TESTS; do
+                    if echo "$line" | grep -q "\-i ${excl}"; then
+                      SKIP=true
+                      break
+                    fi
+                  done
+                  if [ "$SKIP" = "false" ]; then
+                    FILTERED="${FILTERED}${line}\n"
+                  fi
+                done <<< "$CMDS"
+                CMDS=$(echo -e "$FILTERED" | sed '/^$/d')
+              fi
               if [ -n "$CMDS" ]; then
                 MODE="delta"
               fi
@@ -247,7 +269,6 @@ jobs:
           echo "Running ${CMD_COUNT} CPU test command(s)"
           OUTPUT=$(podman run --rm \
             -e CONTINUE_THROUGH_ERROR=True \
-            -e CUDA_VISIBLE_DEVICES="" \
             "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
@@ -345,7 +366,6 @@ jobs:
           echo "Running ${CMD_COUNT} inductor test command(s)"
           OUTPUT=$(podman run --rm \
             -e CONTINUE_THROUGH_ERROR=True \
-            -e CUDA_VISIBLE_DEVICES="" \
             "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
