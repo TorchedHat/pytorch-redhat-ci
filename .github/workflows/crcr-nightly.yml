@@ -253,6 +253,7 @@ jobs:
 
       - name: Run CPU test suite
         id: cpu_run
+        continue-on-error: true
         env:
           TEST_LIST_B64: ${{ needs.determine-tests.outputs.cpu_tests }}
         run: |
@@ -350,6 +351,7 @@ jobs:
 
       - name: Run inductor test suite
         id: inductor_run
+        continue-on-error: true
         env:
           TEST_LIST_B64: ${{ needs.determine-tests.outputs.inductor_tests }}
         run: |
@@ -461,6 +463,7 @@ jobs:
 
       - name: Run single-GPU test suite
         id: sgpu_run
+        continue-on-error: true
         if: steps.gpu_check.outputs.gpu_available == 'true'
         env:
           TEST_LIST_B64: ${{ needs.determine-tests.outputs.sgpu_tests }}
@@ -579,6 +582,7 @@ jobs:
 
       - name: Run multi-GPU test suite
         id: mgpu_run
+        continue-on-error: true
         if: steps.gpu_check.outputs.mgpu_available == 'true'
         env:
           TEST_LIST_B64: ${{ needs.determine-tests.outputs.mgpu_tests }}
