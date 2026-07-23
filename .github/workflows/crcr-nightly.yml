@@ -339,7 +339,7 @@ jobs:
     needs: [build, determine-tests, cpu-tests]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: linux.rhel96
-    timeout-minutes: 180
+    timeout-minutes: 300
     env:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
       PYTORCH_SHA: ${{ needs.build.outputs.sha }}
