@@ -34,11 +34,6 @@ RUN --mount=type=secret,id=subscription_key \
 # Add EPEL repo for jemalloc
 RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
 
-# Enable CRB repo for openmpi and other dev packages not in base UBI repos
-RUN dnf -y install dnf-plugins-core && \
-    (dnf config-manager --set-enabled crb 2>/dev/null || \
-     subscription-manager repos --enable codeready-builder-for-rhel-9-$(uname -m)-rpms 2>/dev/null || \
-     true)
 
 # Install all system packages after subscription registration
 RUN dnf install -y --allowerasing \
@@ -59,8 +54,6 @@ RUN dnf install -y --allowerasing \
     lld \
     openblas \
     openblas-devel \
-    openmpi \
-    openmpi-devel \
     environment-modules \
     findutils \
     curl \
@@ -169,12 +162,9 @@ ENV CMAKE_EXPORT_COMPILE_COMMANDS=ON
 ENV CFLAGS="-mf16c -mavx2"
 ENV CXXFLAGS="-mf16c -mavx2"
 
-# Enable OpenMPI support in PyTorch
-ENV USE_MPI=1
-ENV USE_SYSTEM_MPI=1
-ENV MPI_HOME=/usr/lib64/openmpi
-ENV PATH=/usr/lib64/openmpi/bin:${PATH}
-ENV LD_LIBRARY_PATH=/usr/lib64/openmpi/lib:${LD_LIBRARY_PATH}
+# MPI disabled — not needed for cpu/inductor nightly tests.
+# Re-enable when distributed tests are added.
+ENV USE_MPI=0
 
 # Install dependencies and build PyTorch
 RUN source /miniconda/etc/profile.d/conda.sh && \
