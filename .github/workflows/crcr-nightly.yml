@@ -124,7 +124,7 @@ jobs:
 
           if [ -n "${PREV_SHA}" ]; then
             echo "Delta mode: comparing ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
-            # Heuristic + TorchTalk structural analysis (C++ call graph is
+            # Heuristic + structural analysis (C++ call graph is
             # pre-built and cached inside the image after the first run)
             ALL_RESULTS=$(podman run --rm -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c "
               source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
@@ -203,7 +203,7 @@ jobs:
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Mode | \`${{ steps.resolve.outputs.mode }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Strategy | heuristic + TorchTalk (union) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Strategy | heuristic + structural (union) |" >> $GITHUB_STEP_SUMMARY
           echo "| Current SHA | \`${PYTORCH_SHA:0:10}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Previous SHA | \`${PREV_SHA:0:10}\` |" >> $GITHUB_STEP_SUMMARY
           for pair in "cpu:$CPU_B64" "inductor:$INDUCTOR_B64" "sgpu:$SGPU_B64" "mgpu:$MGPU_B64"; do
