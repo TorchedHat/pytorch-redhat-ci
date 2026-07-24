@@ -274,7 +274,6 @@ jobs:
             "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
-            export CONTINUE_THROUGH_ERROR=True
             PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
               [ -z \"\$cmd\" ] && continue
@@ -373,7 +372,6 @@ jobs:
             "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
-            export CONTINUE_THROUGH_ERROR=True
             PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
               [ -z \"\$cmd\" ] && continue
@@ -487,7 +485,6 @@ jobs:
             "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
-            export CONTINUE_THROUGH_ERROR=True
             PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
               [ -z \"\$cmd\" ] && continue
@@ -607,7 +604,6 @@ jobs:
             "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
-            export CONTINUE_THROUGH_ERROR=True
             PASSED=0; FAILED=0; ERRORS=''
             while IFS= read -r cmd; do
               [ -z \"\$cmd\" ] && continue
