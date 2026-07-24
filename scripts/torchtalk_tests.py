@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-TorchTalk-based structural test determination.
+Structural test determination via C++ call graph analysis.
 
-Uses TorchTalk's C++ call graph and binding analysis to find tests affected
+Uses C++ call graph and binding analysis to find tests affected
 by changes between two commits. Works by:
   1. Getting changed files via git diff
   2. Extracting C++ symbols from changed files
@@ -67,7 +67,7 @@ def get_changed_files(pytorch_dir: str, old_sha: str, new_sha: str) -> list[str]
 
 
 def get_cpp_changed_files(changed_files: list[str]) -> list[str]:
-    """Filter to only C++/CUDA files that TorchTalk can analyze."""
+    """Filter to only C++/CUDA files for structural analysis."""
     cpp_exts = (".cpp", ".cc", ".cxx", ".cu", ".cuh", ".h", ".hpp")
     return [f for f in changed_files if any(f.endswith(ext) for ext in cpp_exts)]
 
@@ -75,14 +75,14 @@ def get_cpp_changed_files(changed_files: list[str]) -> list[str]:
 def run_torchtalk_affected(
     pytorch_dir: str, cpp_files: list[str], depth: int = 3
 ) -> list[dict]:
-    """Use TorchTalk's affected analysis to find impacted test files.
+    """Run structural affected-test analysis on changed C++ files.
 
-    Depth can be overridden via TORCHTALK_DEPTH environment variable.
+    Depth can be overridden via STRUCTURAL_ANALYSIS_DEPTH environment variable.
     Returns a list of {"file": str, "included_classes": list[str]} dicts.
     """
     import os
 
-    env_depth = os.environ.get("TORCHTALK_DEPTH")
+    env_depth = os.environ.get("STRUCTURAL_ANALYSIS_DEPTH")
     if env_depth and env_depth.isdigit():
         depth = int(env_depth)
 
@@ -91,22 +91,21 @@ def run_torchtalk_affected(
         from torchtalk.analysis.affected import affected_tests, symbols_in_file
     except ImportError as e:
         print(
-            f"TorchTalk not installed ({e}), skipping structural analysis",
+            f"Structural analyzer not installed ({e}), skipping",
             file=sys.stderr,
         )
         return []
     except Exception as e:
         print(
-            f"TorchTalk import failed unexpectedly ({e}), skipping",
+            f"Structural analyzer import failed ({e}), skipping",
             file=sys.stderr,
         )
         return []
 
-    # build_index waits for the C++ call graph background thread to complete
     build_index(pytorch_dir, wait_for_cpp=True)
 
     if _state.cpp_extractor is None:
-        print("TorchTalk: C++ call graph not available", file=sys.stderr)
+        print("C++ call graph not available, skipping", file=sys.stderr)
         return []
 
     all_funcs: list[str] = []
@@ -117,13 +116,13 @@ def run_torchtalk_affected(
 
     if not all_funcs:
         print(
-            f"TorchTalk: No C++ symbols found in {len(cpp_files)} changed files",
+            f"No C++ symbols found in {len(cpp_files)} changed files",
             file=sys.stderr,
         )
         return []
 
     print(
-        f"TorchTalk: Analyzing {len(all_funcs)} C++ symbols from "
+        f"Analyzing {len(all_funcs)} C++ symbols from "
         f"{len(cpp_files)} files (depth={depth})",
         file=sys.stderr,
     )
@@ -152,7 +151,7 @@ def run_torchtalk_affected(
     )
 
     print(
-        f"TorchTalk: Walked {result['callers_walked']} callers, "
+        f"Walked {result['callers_walked']} callers, "
         f"matched {len(result['bindings_matched'])} bindings, "
         f"found {len(result['python_apis'])} APIs -> "
         f"{len(result['test_runs'])} test files",
@@ -165,7 +164,7 @@ def run_torchtalk_affected(
 def test_runs_to_commands(
     test_runs: list[dict], category: Optional[str] = None
 ) -> list[str]:
-    """Convert TorchTalk test_runs output to run_test.py commands."""
+    """Convert structural analysis test_runs output to run_test.py commands."""
     commands: list[str] = []
     seen: set[str] = set()
 
@@ -202,7 +201,7 @@ def test_runs_to_commands(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="TorchTalk structural test determination for PyTorch.",
+        description="Structural test determination for PyTorch (C++ call graph).",
     )
     parser.add_argument("old_sha", help="Old commit SHA (base)")
     parser.add_argument("new_sha", help="New commit SHA (head)")
@@ -225,7 +224,7 @@ def main():
     parser.add_argument(
         "--json",
         action="store_true",
-        help="Output as JSON (raw TorchTalk result)",
+        help="Output as JSON (raw structural analysis result)",
     )
     parser.add_argument(
         "--commands-only",
@@ -248,7 +247,7 @@ def main():
     if not cpp_files:
         print(
             f"No C++/CUDA files in {len(changed_files)} changed files, "
-            "nothing for TorchTalk to analyze",
+            "nothing for structural analysis",
             file=sys.stderr,
         )
         sys.exit(0)
@@ -271,7 +270,7 @@ def main():
         for cmd in commands:
             print(cmd)
     else:
-        print(f"\nTorchTalk Results:")
+        print(f"\nStructural Analysis Results:")
         print(f"  Changed C++ files: {len(cpp_files)}")
         print(f"  Test files found:  {len(test_runs)}")
         print(f"  Commands generated: {len(commands)}")
