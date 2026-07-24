@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unified test determination: merges results from targeted_tests.py and TorchTalk.
+Unified test determination: merges heuristic and structural analysis results.
 
 Takes the UNION of both tools' outputs to maximize test coverage:
   - targeted_tests.py: fast file-path heuristic (good for Python changes)
@@ -64,21 +64,20 @@ def run_torchtalk_tests(
 ) -> list[str]:
     """Run torchtalk_tests.py and capture its output.
 
-    Returns empty list if TorchTalk is not available (graceful degradation).
+    Returns empty list if the structural analyzer is not available (graceful degradation).
     """
     script = Path(__file__).parent / "torchtalk_tests.py"
     if not script.exists():
-        print("torchtalk_tests.py not found, skipping structural pass", file=sys.stderr)
+        print("structural analysis script not found, skipping", file=sys.stderr)
         return []
 
-    # Quick check: is torchtalk importable?
     check = subprocess.run(
         [sys.executable, "-c", "import torchtalk"],
         capture_output=True,
     )
     if check.returncode != 0:
         print(
-            "torchtalk package not installed, skipping structural pass",
+            "structural analyzer not installed, skipping",
             file=sys.stderr,
         )
         return []
@@ -98,7 +97,7 @@ def run_torchtalk_tests(
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(
-            f"torchtalk_tests.py exited with code {result.returncode}",
+            f"structural analysis exited with code {result.returncode}",
             file=sys.stderr,
         )
         if result.stderr:
@@ -108,7 +107,7 @@ def run_torchtalk_tests(
     if result.stderr:
         for line in result.stderr.strip().split("\n"):
             if line.strip():
-                print(f"  [torchtalk] {line.strip()}", file=sys.stderr)
+                print(f"  [structural] {line.strip()}", file=sys.stderr)
 
     return [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
 
@@ -126,7 +125,7 @@ def merge_commands(list_a: list[str], list_b: list[str]) -> list[str]:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Unified test determination: targeted_tests + TorchTalk union.",
+        description="Unified test determination: heuristic + structural analysis union.",
     )
     parser.add_argument("old_sha", help="Old commit SHA (base)")
     parser.add_argument("new_sha", help="New commit SHA (head)")
@@ -157,7 +156,7 @@ def main():
     )
     print(f"  Found {len(heuristic)} commands", file=sys.stderr)
 
-    print("=== Structural pass (TorchTalk) ===", file=sys.stderr)
+    print("=== Structural pass (C++ call graph) ===", file=sys.stderr)
     structural = run_torchtalk_tests(
         args.old_sha, args.new_sha, args.pytorch_dir, args.category
     )
@@ -176,7 +175,7 @@ def main():
     else:
         print(f"\nUnified Test Determination Results:")
         print(f"  Heuristic (targeted_tests.py): {len(heuristic)} commands")
-        print(f"  Structural (TorchTalk):        {len(structural)} commands")
+        print(f"  Structural (C++ call graph):   {len(structural)} commands")
         print(f"  Merged (union):                {len(merged)} commands")
         if overlap > 0:
             print(f"  Overlap (deduped):             {overlap}")
