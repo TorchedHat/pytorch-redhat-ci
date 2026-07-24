@@ -36,7 +36,7 @@ Runs daily at 04:00 UTC via cron, or manually via `workflow_dispatch`.
 
 **Determine-tests job** (`linux.rhel96`):
 - Computes the diff between the current and previous nightly SHA
-- Runs `merge_test_results.py` (heuristic + TorchTalk structural analysis)
+- Runs `merge_test_results.py` (heuristic + structural call graph analysis)
 - Outputs categorized test lists (cpu, inductor, sgpu, mgpu)
 - Falls back to full test suite if delta produces no results
 
@@ -75,12 +75,12 @@ The nightly workflow uses a dual-strategy approach for delta-based test selectio
 | `torchtalk_tests.py` | C++ call graph + binding analysis | C++ kernel/op changes |
 | `merge_test_results.py` | Union of both | Combined coverage |
 
-The unified merger (`merge_test_results.py`) runs both tools and deduplicates results. If TorchTalk is not installed or its index is unavailable, the system gracefully falls back to heuristic-only mode.
+The unified merger (`merge_test_results.py`) runs both tools and deduplicates results. If the structural analyzer is not installed or its index is unavailable, the system gracefully falls back to heuristic-only mode.
 
 Test commands are validated against `run_test.py`'s accepted test list before execution to filter out invalid entries.
 
 **Environment variables:**
-- `TORCHTALK_DEPTH` — Override call graph walk depth (default: 3)
+- `STRUCTURAL_ANALYSIS_DEPTH` — Override call graph walk depth (default: 3)
 
 ## Prerequisites
 
