@@ -155,7 +155,7 @@ ENV USE_SYSTEM_NCCL=1
 ENV CMAKE_LINKER="lld"
 ENV LDFLAGS="-fuse-ld=lld"
 
-# Generate compile_commands.json for TorchTalk structural analysis
+# Generate compile_commands.json for structural call graph analysis
 ENV CMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 # Enable F16C and AVX2 for half-precision float16 support on x86-64
@@ -182,10 +182,13 @@ RUN source /miniconda/etc/profile.d/conda.sh && \
     export CMAKE_PREFIX_PATH="${CONDA_PREFIX:-'$(dirname $(which conda))/../'}:${CMAKE_PREFIX_PATH}" && \
     .ci/pytorch/build.sh
 
-# Install TorchTalk for structural analysis in test determination
+# Install structural analysis tool for test determination (cloned fresh
+# each build to pick up the latest changes from the private repo)
 RUN source /miniconda/etc/profile.d/conda.sh && \
     conda activate ${CONDA_ENV} && \
-    pip install git+https://github.com/TorchedHat/torchtalk.git@main
+    git clone --depth=1 https://github.com/TorchedHat/torchtalk.git /tmp/_structural_analyzer && \
+    pip install /tmp/_structural_analyzer && \
+    rm -rf /tmp/_structural_analyzer
 
 # Set default conda environment for interactive use
 ENV CONDA_DEFAULT_ENV=${CONDA_ENV}
