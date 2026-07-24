@@ -35,8 +35,10 @@ RUN --mount=type=secret,id=subscription_key \
 RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
 
 # Enable CRB repo for openmpi and other dev packages not in base UBI repos
-RUN subscription-manager repos --enable codeready-builder-for-rhel-9-x86_64-rpms || \
-    (dnf -y install dnf-plugins-core && dnf config-manager --set-enabled crb)
+RUN dnf -y install dnf-plugins-core && \
+    (dnf config-manager --set-enabled crb 2>/dev/null || \
+     subscription-manager repos --enable codeready-builder-for-rhel-9-$(uname -m)-rpms 2>/dev/null || \
+     true)
 
 # Install all system packages after subscription registration
 RUN dnf install -y --allowerasing \
