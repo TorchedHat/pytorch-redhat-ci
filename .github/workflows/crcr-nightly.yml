@@ -269,7 +269,8 @@ jobs:
 
           CMD_COUNT=$(echo "$COMMANDS" | wc -l)
           echo "Running ${CMD_COUNT} CPU test command(s)"
-          OUTPUT=$(podman run --rm \
+          LOG=/tmp/cpu_test_output.log
+          podman run --rm \
             -e CONTINUE_THROUGH_ERROR=True \
             "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
@@ -295,12 +296,11 @@ jobs:
             if [ \$FAILED -gt 0 ]; then
               echo -e \"ERRORS=\${ERRORS}\"
             fi
-          " 2>&1) || true
-          echo "$OUTPUT"
+          " 2>&1 | tee "$LOG" || true
 
-          PASSED=$(echo "$OUTPUT" | grep '^PASSED=' | tail -1 | cut -d= -f2)
-          FAILED=$(echo "$OUTPUT" | grep '^FAILED=' | tail -1 | cut -d= -f2)
-          FAIL_LIST=$(echo "$OUTPUT" | grep '^  FAIL:' || true)
+          PASSED=$(grep '^PASSED=' "$LOG" | tail -1 | cut -d= -f2)
+          FAILED=$(grep '^FAILED=' "$LOG" | tail -1 | cut -d= -f2)
+          FAIL_LIST=$(grep '^  FAIL:' "$LOG" || true)
           echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
           {
@@ -367,7 +367,8 @@ jobs:
 
           CMD_COUNT=$(echo "$COMMANDS" | wc -l)
           echo "Running ${CMD_COUNT} inductor test command(s)"
-          OUTPUT=$(podman run --rm \
+          LOG=/tmp/inductor_test_output.log
+          podman run --rm \
             -e CONTINUE_THROUGH_ERROR=True \
             "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
@@ -393,12 +394,11 @@ jobs:
             if [ \$FAILED -gt 0 ]; then
               echo -e \"ERRORS=\${ERRORS}\"
             fi
-          " 2>&1) || true
-          echo "$OUTPUT"
+          " 2>&1 | tee "$LOG" || true
 
-          PASSED=$(echo "$OUTPUT" | grep '^PASSED=' | tail -1 | cut -d= -f2)
-          FAILED=$(echo "$OUTPUT" | grep '^FAILED=' | tail -1 | cut -d= -f2)
-          FAIL_LIST=$(echo "$OUTPUT" | grep '^  FAIL:' || true)
+          PASSED=$(grep '^PASSED=' "$LOG" | tail -1 | cut -d= -f2)
+          FAILED=$(grep '^FAILED=' "$LOG" | tail -1 | cut -d= -f2)
+          FAIL_LIST=$(grep '^  FAIL:' "$LOG" || true)
           echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
           {
@@ -480,7 +480,8 @@ jobs:
 
           CMD_COUNT=$(echo "$COMMANDS" | wc -l)
           echo "Running ${CMD_COUNT} single-GPU test command(s)"
-          OUTPUT=$(podman run --rm --device nvidia.com/gpu=all \
+          LOG=/tmp/sgpu_test_output.log
+          podman run --rm --device nvidia.com/gpu=all \
             -e CONTINUE_THROUGH_ERROR=True \
             "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
@@ -506,12 +507,11 @@ jobs:
             if [ \$FAILED -gt 0 ]; then
               echo -e \"ERRORS=\${ERRORS}\"
             fi
-          " 2>&1) || true
-          echo "$OUTPUT"
+          " 2>&1 | tee "$LOG" || true
 
-          PASSED=$(echo "$OUTPUT" | grep '^PASSED=' | tail -1 | cut -d= -f2)
-          FAILED=$(echo "$OUTPUT" | grep '^FAILED=' | tail -1 | cut -d= -f2)
-          FAIL_LIST=$(echo "$OUTPUT" | grep '^  FAIL:' || true)
+          PASSED=$(grep '^PASSED=' "$LOG" | tail -1 | cut -d= -f2)
+          FAILED=$(grep '^FAILED=' "$LOG" | tail -1 | cut -d= -f2)
+          FAIL_LIST=$(grep '^  FAIL:' "$LOG" || true)
           echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
           {
@@ -599,7 +599,8 @@ jobs:
 
           CMD_COUNT=$(echo "$COMMANDS" | wc -l)
           echo "Running ${CMD_COUNT} multi-GPU test command(s)"
-          OUTPUT=$(podman run --rm --device nvidia.com/gpu=all \
+          LOG=/tmp/mgpu_test_output.log
+          podman run --rm --device nvidia.com/gpu=all \
             -e CONTINUE_THROUGH_ERROR=True \
             "${IMAGE_TAG}" bash -c "
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
@@ -625,12 +626,11 @@ jobs:
             if [ \$FAILED -gt 0 ]; then
               echo -e \"ERRORS=\${ERRORS}\"
             fi
-          " 2>&1) || true
-          echo "$OUTPUT"
+          " 2>&1 | tee "$LOG" || true
 
-          PASSED=$(echo "$OUTPUT" | grep '^PASSED=' | tail -1 | cut -d= -f2)
-          FAILED=$(echo "$OUTPUT" | grep '^FAILED=' | tail -1 | cut -d= -f2)
-          FAIL_LIST=$(echo "$OUTPUT" | grep '^  FAIL:' || true)
+          PASSED=$(grep '^PASSED=' "$LOG" | tail -1 | cut -d= -f2)
+          FAILED=$(grep '^FAILED=' "$LOG" | tail -1 | cut -d= -f2)
+          FAIL_LIST=$(grep '^  FAIL:' "$LOG" || true)
           echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
           {
