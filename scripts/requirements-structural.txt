@@ -1,0 +1,12 @@
+# Structural Analysis for Delta Test Selection
+#
+# C++ call graph analysis for PyTorch test determination.
+# Traces function calls through libclang, understands pybind11 bindings,
+# and maps C++ changes to affected Python test files.
+#
+# Used alongside targeted_tests.py for comprehensive test determination:
+#   - targeted_tests.py: fast file-path heuristic mapping
+#   - structural analysis: call graph + binding analysis
+#   - Final result: union of both for maximum coverage
+
+torchtalk @ git+https://github.com/TorchedHat/torchtalk.git@main
