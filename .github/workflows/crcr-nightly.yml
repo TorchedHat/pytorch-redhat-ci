@@ -315,6 +315,8 @@ jobs:
 
       - name: Test summary
         if: always()
+        env:
+          ERRORS_OUTPUT: ${{ steps.cpu_run.outputs.errors }}
         run: |
           echo "## CRCR Nightly: RHEL 9.6 — CPU Tests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -325,12 +327,11 @@ jobs:
           echo "| Passed | ${{ steps.cpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Failed | ${{ steps.cpu_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Result | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
-          ERRORS="${{ steps.cpu_run.outputs.errors }}"
-          if [ -n "$ERRORS" ]; then
+          if [ -n "$ERRORS_OUTPUT" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "$ERRORS" >> $GITHUB_STEP_SUMMARY
+            echo "$ERRORS_OUTPUT" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
@@ -413,6 +414,8 @@ jobs:
 
       - name: Test summary
         if: always()
+        env:
+          ERRORS_OUTPUT: ${{ steps.inductor_run.outputs.errors }}
         run: |
           echo "## CRCR Nightly: RHEL 9.6 — Inductor Tests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -422,12 +425,11 @@ jobs:
           echo "| Passed | ${{ steps.inductor_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Failed | ${{ steps.inductor_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Result | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
-          ERRORS="${{ steps.inductor_run.outputs.errors }}"
-          if [ -n "$ERRORS" ]; then
+          if [ -n "$ERRORS_OUTPUT" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "$ERRORS" >> $GITHUB_STEP_SUMMARY
+            echo "$ERRORS_OUTPUT" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
@@ -526,6 +528,8 @@ jobs:
 
       - name: Test summary
         if: always()
+        env:
+          ERRORS_OUTPUT: ${{ steps.sgpu_run.outputs.errors }}
         run: |
           echo "## CRCR Nightly: RHEL 9.6 — Single-GPU Tests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -536,12 +540,11 @@ jobs:
           echo "| Passed | ${{ steps.sgpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Failed | ${{ steps.sgpu_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Result | \`${{ steps.gpu_check.outputs.gpu_available == 'true' && job.status || 'skipped (no GPU)' }}\` |" >> $GITHUB_STEP_SUMMARY
-          ERRORS="${{ steps.sgpu_run.outputs.errors }}"
-          if [ -n "$ERRORS" ]; then
+          if [ -n "$ERRORS_OUTPUT" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "$ERRORS" >> $GITHUB_STEP_SUMMARY
+            echo "$ERRORS_OUTPUT" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
@@ -645,6 +648,8 @@ jobs:
 
       - name: Test summary
         if: always()
+        env:
+          ERRORS_OUTPUT: ${{ steps.mgpu_run.outputs.errors }}
         run: |
           echo "## CRCR Nightly: RHEL 9.6 — Multi-GPU Tests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -655,11 +660,10 @@ jobs:
           echo "| Passed | ${{ steps.mgpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Failed | ${{ steps.mgpu_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Result | \`${{ steps.gpu_check.outputs.mgpu_available == 'true' && job.status || 'skipped (need 2+ GPUs)' }}\` |" >> $GITHUB_STEP_SUMMARY
-          ERRORS="${{ steps.mgpu_run.outputs.errors }}"
-          if [ -n "$ERRORS" ]; then
+          if [ -n "$ERRORS_OUTPUT" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "$ERRORS" >> $GITHUB_STEP_SUMMARY
+            echo "$ERRORS_OUTPUT" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
