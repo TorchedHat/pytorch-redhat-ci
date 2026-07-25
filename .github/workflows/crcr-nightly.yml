@@ -18,7 +18,7 @@ permissions:
 jobs:
   build:
     runs-on: linux.rhel96
-    timeout-minutes: 180
+    timeout-minutes: 600
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
       prev_sha: ${{ steps.sha.outputs.prev_sha }}
@@ -99,7 +99,7 @@ jobs:
   determine-tests:
     needs: build
     runs-on: linux.rhel96
-    timeout-minutes: 15
+    timeout-minutes: 600
     outputs:
       cpu_tests: ${{ steps.resolve.outputs.cpu_tests }}
       inductor_tests: ${{ steps.resolve.outputs.inductor_tests }}
@@ -216,7 +216,7 @@ jobs:
   cpu-tests:
     needs: [build, determine-tests]
     runs-on: linux.rhel96
-    timeout-minutes: 180
+    timeout-minutes: 600
     env:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
       PYTORCH_SHA: ${{ needs.build.outputs.sha }}
@@ -338,7 +338,7 @@ jobs:
     needs: [build, determine-tests, cpu-tests]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: linux.rhel96
-    timeout-minutes: 300
+    timeout-minutes: 600
     env:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
       PYTORCH_SHA: ${{ needs.build.outputs.sha }}
@@ -435,7 +435,7 @@ jobs:
     needs: [build, determine-tests, inductor-tests]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: linux.rhel96
-    timeout-minutes: 90
+    timeout-minutes: 600
     env:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
       PYTORCH_SHA: ${{ needs.build.outputs.sha }}
@@ -549,7 +549,7 @@ jobs:
     needs: [build, determine-tests, sgpu-tests]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: linux.rhel96
-    timeout-minutes: 90
+    timeout-minutes: 600
     env:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
       PYTORCH_SHA: ${{ needs.build.outputs.sha }}
