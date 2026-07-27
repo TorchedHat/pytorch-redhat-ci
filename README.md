@@ -40,11 +40,13 @@ Runs daily at 04:00 UTC via cron, or manually via `workflow_dispatch`.
 - Outputs categorized test lists (cpu, inductor, sgpu, mgpu)
 - Falls back to full test suite if delta produces no results
 
-**Test jobs** (`linux.rhel96`, sequential):
-- `cpu-tests` — CPU-only PyTorch tests (timeout: 180 min)
+**Test jobs** (`linux.rhel96`, sequential, 24h job timeout, 30m per-command timeout):
+- `cpu-tests` — CPU-only PyTorch tests
 - `inductor-tests` — TorchInductor tests
 - `sgpu-tests` — Single-GPU tests (skipped if no GPU available)
 - `mgpu-tests` — Multi-GPU tests (skipped if < 2 GPUs available)
+
+Each test job runs with `CONTINUE_THROUGH_ERROR=True`, collecting pass/fail counts and printing a summary at the end. Individual test commands are wrapped with a 30-minute timeout to prevent hangs from blocking the entire job.
 
 ### `rhel96-build-test.yml` — PR Build & Sanity Tests (Disabled)
 
@@ -72,7 +74,7 @@ The nightly workflow uses a dual-strategy approach for delta-based test selectio
 | Tool | Strategy | Best For |
 |------|----------|----------|
 | `targeted_tests.py` | File-path heuristic mapping | Python file changes, test moves |
-| `torchtalk_tests.py` | C++ call graph + binding analysis | C++ kernel/op changes |
+| `structural_tests.py` | C++ call graph + binding analysis | C++ kernel/op changes |
 | `merge_test_results.py` | Union of both | Combined coverage |
 
 The unified merger (`merge_test_results.py`) runs both tools and deduplicates results. If the structural analyzer is not installed or its index is unavailable, the system gracefully falls back to heuristic-only mode.
