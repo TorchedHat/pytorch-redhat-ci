@@ -99,9 +99,19 @@ jobs:
 
           rm -f /tmp/sub_key.txt /tmp/sub_org.txt
 
+      - name: Tag and push to Quay.io
+        env:
+          IMAGE_TAG: ${{ steps.sha.outputs.image_tag }}
+          QUAY_TAG: ${{ steps.sha.outputs.quay_tag }}
+        run: |
+          podman tag "${IMAGE_TAG}" "${QUAY_TAG}"
+          podman push "${QUAY_TAG}"
+          echo "Pushed: ${QUAY_TAG}"
+
       - name: Build summary
         env:
           IMAGE_TAG: ${{ steps.sha.outputs.image_tag }}
+          QUAY_TAG: ${{ steps.sha.outputs.quay_tag }}
           PYTORCH_SHA: ${{ steps.sha.outputs.sha }}
         run: |
           echo "## CRCR Nightly: RHEL 9.6 — Build" >> $GITHUB_STEP_SUMMARY
@@ -109,7 +119,8 @@ jobs:
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Image | \`${IMAGE_TAG}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Local Image | \`${IMAGE_TAG}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Quay Image | \`${QUAY_TAG}\` |" >> $GITHUB_STEP_SUMMARY
 
   determine-tests:
     needs: build
