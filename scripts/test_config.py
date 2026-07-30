@@ -96,6 +96,7 @@ SGPU_TESTS: list[tuple[str, Optional[str], float, str]] = [
 ]
 
 MGPU_TESTS: list[tuple[str, Optional[str], float, str]] = [
+    ("test/test_cuda_multigpu.py", None, 15, "CUDA multi-GPU"),
     ("test/distributed/test_c10d_common.py", None, 15, "c10d common"),
     ("test/distributed/test_c10d_nccl.py", None, 15, "c10d NCCL"),
     ("test/distributed/fsdp/test_fsdp_core.py", None, 20, "FSDP core"),
