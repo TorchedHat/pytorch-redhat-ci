@@ -37,6 +37,11 @@ Runs daily at 04:00 UTC via cron, or manually via `workflow_dispatch`.
 - Builds PyTorch from source inside a RHEL 9.6 UBI container using `podman build`
 - RHEL subscription credentials are passed via BuildKit `--secret` mounts (never appear in image layers or `docker history`)
 - Produces a tagged container image (`rhel9-pytorch-nightly:<sha>`) for downstream test jobs
+- **Pushes to [Quay.io](https://quay.io/repository/aipcc/pytorch)** with a reproducible tag:
+  ```
+  quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_cuda13_0
+  ```
+  Tag components: `rhel9_6` (OS), `nightly` (pipeline), `main` (PyTorch branch), `git<sha>` (commit), `cuda13_0` (CUDA version)
 
 #### Determine-tests (`linux.rhel96`, 10h timeout)
 - Computes the diff between the current and previous source SHAs
@@ -127,15 +132,19 @@ scripts/
 3. **RHEL subscription secrets** must be configured in the repo:
    - `RHEL_SUBSCRIPTION_ACTIVATION_KEY`
    - `RHEL_SUBSCRIPTION_ORG_ID`
-4. This repo must be on the [CRCR allowlist](https://github.com/pytorch/test-infra) to receive dispatches:
+4. **Quay.io registry secrets** must be configured for image pushing:
+   - `QUAY_USERNAME` — Quay.io robot account or username
+   - `QUAY_PASSWORD` — Quay.io password or token
+5. This repo must be on the [CRCR allowlist](https://github.com/pytorch/test-infra) to receive dispatches:
    ```yaml
    L2:
      - TorchedHat/pytorch-redhat-ci
    ```
-5. For GPU test jobs, the runner must have NVIDIA GPUs with drivers installed
+6. For GPU test jobs, the runner must have NVIDIA GPUs with drivers installed
 
 ## Related Resources
 
+- [Quay.io Container Registry](https://quay.io/repository/aipcc/pytorch)
 - [CRCR Blog Post](https://pytorch.org/blog/introducing-cross-repository-ci-relay-scalable-ci-for-pytorchs-out-of-tree-backends/)
 - [CRCR Relay Lambda](https://github.com/pytorch/test-infra/tree/main/aws/lambda/cross_repo_ci_relay)
 - [Callback Action](https://github.com/pytorch/test-infra/tree/main/.github/actions/cross-repo-ci-relay-callback)
