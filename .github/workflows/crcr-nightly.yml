@@ -449,6 +449,12 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Fail job if tests failed
+        if: always() && steps.inductor_run.outcome == 'failure'
+        run: |
+          echo "::error::Inductor tests had failures — see summary above"
+          exit 1
+
   sgpu-tests:
     needs: [build, determine-tests, inductor-tests]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
