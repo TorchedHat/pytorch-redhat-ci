@@ -33,6 +33,7 @@ CATEGORY_RULES: list[tuple[str, str]] = [
     ("test/dynamo/", "inductor"),
     ("test/export/", "inductor"),
     ("test/functorch/", "inductor"),
+    ("test/test_cuda_multigpu", "mgpu"),
     ("test/test_cuda", "sgpu"),
 ]
 
