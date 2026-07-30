@@ -511,38 +511,41 @@ jobs:
           CMD_COUNT=$(echo "$COMMANDS" | wc -l)
           echo "Running ${CMD_COUNT} single-GPU test command(s)"
           LOG=/tmp/sgpu_test_output.log
+          echo "$COMMANDS" > /tmp/sgpu_test_commands.txt
           podman run --rm --device nvidia.com/gpu=all \
             -e CONTINUE_THROUGH_ERROR=True \
-            "${IMAGE_TAG}" bash -c "
+            -v /tmp/sgpu_test_commands.txt:/tmp/test_commands.txt:ro \
+            "${IMAGE_TAG}" bash -c '
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
             cd /pytorch
-            PASSED=0; FAILED=0; ERRORS=''
+            PASSED=0; FAILED=0; ERRORS=""
             while IFS= read -r cmd; do
-              [ -z \"\$cmd\" ] && continue
-              echo ''
-              echo '============================================================'
-              echo \"Running: \$cmd\"
-              echo '============================================================'
-              if timeout 1800 bash -c \"eval \\\"\$cmd\\\"\"; then
-                PASSED=\$((PASSED + 1))
+              [ -z "$cmd" ] && continue
+              echo ""
+              echo "============================================================"
+              echo "Running: $cmd"
+              echo "============================================================"
+              echo "$cmd" > /tmp/_run.sh
+              if timeout 1800 bash /tmp/_run.sh; then
+                PASSED=$((PASSED + 1))
               else
-                RC=\$?
-                FAILED=\$((FAILED + 1))
-                if [ \$RC -eq 124 ]; then
-                  ERRORS=\"\${ERRORS}\n  TIMEOUT(30m): \$cmd\"
+                RC=$?
+                FAILED=$((FAILED + 1))
+                if [ $RC -eq 124 ]; then
+                  ERRORS="${ERRORS}\n  TIMEOUT(30m): $cmd"
                 else
-                  ERRORS=\"\${ERRORS}\n  FAIL: \$cmd\"
+                  ERRORS="${ERRORS}\n  FAIL: $cmd"
                 fi
               fi
-            done <<< '$COMMANDS'
-            echo ''
-            echo ':::SUMMARY:::'
-            echo \"PASSED=\${PASSED}\"
-            echo \"FAILED=\${FAILED}\"
-            if [ \$FAILED -gt 0 ]; then
-              echo -e \"ERRORS=\${ERRORS}\"
+            done < /tmp/test_commands.txt
+            echo ""
+            echo ":::SUMMARY:::"
+            echo "PASSED=${PASSED}"
+            echo "FAILED=${FAILED}"
+            if [ $FAILED -gt 0 ]; then
+              echo -e "ERRORS=${ERRORS}"
             fi
-          " 2>&1 | tee "$LOG" || true
+          ' 2>&1 | tee "$LOG" || true
 
           PASSED=$(grep '^PASSED=' "$LOG" | tail -1 | cut -d= -f2)
           FAILED=$(grep '^FAILED=' "$LOG" | tail -1 | cut -d= -f2)
