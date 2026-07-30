@@ -11,6 +11,8 @@ run-name: >-
 env:
   UPSTREAM_REPO: pytorch/pytorch
   NIGHTLY_BRANCH: nightly
+  QUAY_REGISTRY: quay.io/aipcc/pytorch
+  CUDA_VERSION: "13_0"
 
 permissions:
   contents: read
@@ -23,6 +25,7 @@ jobs:
       sha: ${{ steps.sha.outputs.sha }}
       prev_sha: ${{ steps.sha.outputs.prev_sha }}
       image_tag: ${{ steps.sha.outputs.image_tag }}
+      quay_tag: ${{ steps.sha.outputs.quay_tag }}
     steps:
       - name: Checkout CI repo
         uses: actions/checkout@v4
@@ -58,9 +61,14 @@ jobs:
 
           echo "Source main SHA (current): $SOURCE_SHA"
           echo "Source main SHA (previous): $PREV_SOURCE_SHA"
+          SHORT_SHA=${SOURCE_SHA:0:7}
+          QUAY_TAG="${QUAY_REGISTRY}:rhel9_6_pytorch_nightly_main_git${SHORT_SHA}_cuda${CUDA_VERSION}"
+
           echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
           echo "prev_sha=$PREV_SOURCE_SHA" >> "$GITHUB_OUTPUT"
           echo "image_tag=rhel9-pytorch-nightly:${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "quay_tag=$QUAY_TAG" >> "$GITHUB_OUTPUT"
+          echo "Quay tag: $QUAY_TAG"
 
       - name: Log in to Quay.io
         env:
