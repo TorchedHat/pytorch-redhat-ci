@@ -575,6 +575,12 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Fail job if tests failed
+        if: always() && steps.sgpu_run.outcome == 'failure'
+        run: |
+          echo "::error::Single-GPU tests had failures — see summary above"
+          exit 1
+
   mgpu-tests:
     needs: [build, determine-tests, sgpu-tests]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
