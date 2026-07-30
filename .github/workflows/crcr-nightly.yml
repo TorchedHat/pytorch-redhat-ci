@@ -62,6 +62,13 @@ jobs:
           echo "prev_sha=$PREV_SOURCE_SHA" >> "$GITHUB_OUTPUT"
           echo "image_tag=rhel9-pytorch-nightly:${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
 
+      - name: Log in to Quay.io
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+        run: |
+          echo "$QUAY_PASSWORD" | podman login quay.io -u "$QUAY_USERNAME" --password-stdin
+
       - name: Build container image
         env:
           IMAGE_TAG: ${{ steps.sha.outputs.image_tag }}
