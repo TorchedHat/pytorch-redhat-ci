@@ -167,9 +167,8 @@ ENV CMAKE_EXPORT_COMPILE_COMMANDS=ON
 ENV CFLAGS="-mf16c -mavx2"
 ENV CXXFLAGS="-mf16c -mavx2"
 
-# MPI disabled — not needed for cpu/inductor nightly tests.
-# Re-enable when distributed tests are added.
-ENV USE_MPI=0
+ENV USE_MPI=1
+ENV USE_SYSTEM_MPI=1
 
 # Install dependencies and build PyTorch
 RUN source /miniconda/etc/profile.d/conda.sh && \
