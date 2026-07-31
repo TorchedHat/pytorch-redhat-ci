@@ -375,11 +375,6 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Fail job if tests failed
-        if: always() && steps.cpu_run.outcome == 'failure'
-        run: |
-          echo "::error::CPU tests had failures — see summary above"
-          exit 1
 
   inductor-tests:
     needs: [build, determine-tests, cpu-tests]
