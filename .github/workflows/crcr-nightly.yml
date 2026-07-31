@@ -613,7 +613,15 @@ jobs:
           echo "| GPUs | ${{ steps.gpu_check.outputs.gpu_count }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Passed | ${{ steps.sgpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Failed | ${{ steps.sgpu_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Result | \`${{ steps.gpu_check.outputs.gpu_available == 'true' && job.status || 'skipped (no GPU)' }}\` |" >> $GITHUB_STEP_SUMMARY
+          RESULT="skipped (no GPU)"
+          if [ "${{ steps.gpu_check.outputs.gpu_available }}" = "true" ]; then
+            if [ "${{ steps.sgpu_run.outcome }}" = "failure" ]; then
+              RESULT="completed with failures"
+            else
+              RESULT="success"
+            fi
+          fi
+          echo "| Result | \`${RESULT}\` |" >> $GITHUB_STEP_SUMMARY
           if [ -n "$ERRORS_OUTPUT" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
