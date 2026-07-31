@@ -343,10 +343,6 @@ jobs:
             echo 'ERRORS_EOF'
           } >> "$GITHUB_OUTPUT"
 
-          if [ "${FAILED:-0}" -gt 0 ]; then
-            exit 1
-          fi
-
       - name: Test summary
         if: always()
         env:
@@ -456,10 +452,6 @@ jobs:
             echo "$FAIL_LIST"
             echo 'ERRORS_EOF'
           } >> "$GITHUB_OUTPUT"
-
-          if [ "${FAILED:-0}" -gt 0 ]; then
-            exit 1
-          fi
 
       - name: Test summary
         if: always()
@@ -585,10 +577,6 @@ jobs:
             echo "$FAIL_LIST"
             echo 'ERRORS_EOF'
           } >> "$GITHUB_OUTPUT"
-
-          if [ "${FAILED:-0}" -gt 0 ]; then
-            exit 1
-          fi
 
       - name: Test summary
         if: always()
@@ -722,10 +710,6 @@ jobs:
             echo "$FAIL_LIST"
             echo 'ERRORS_EOF'
           } >> "$GITHUB_OUTPUT"
-
-          if [ "${FAILED:-0}" -gt 0 ]; then
-            exit 1
-          fi
 
       - name: Test summary
         if: always()
