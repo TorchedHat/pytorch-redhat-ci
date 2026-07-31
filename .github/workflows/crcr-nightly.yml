@@ -478,7 +478,13 @@ jobs:
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| Passed | ${{ steps.inductor_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Failed | ${{ steps.inductor_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Result | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
+          RESULT="success"
+          if [ "${{ steps.inductor_run.outcome }}" = "failure" ]; then
+            RESULT="completed with failures"
+          elif [ "${{ steps.inductor_run.outcome }}" = "skipped" ]; then
+            RESULT="skipped"
+          fi
+          echo "| Result | \`${RESULT}\` |" >> $GITHUB_STEP_SUMMARY
           if [ -n "$ERRORS_OUTPUT" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
