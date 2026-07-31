@@ -354,15 +354,14 @@ jobs:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| Mode | \`${{ needs.determine-tests.outputs.mode }}\` |" >> $GITHUB_STEP_SUMMARY
+          FAILED="${{ steps.cpu_run.outputs.failed || '0' }}"
           echo "| Passed | ${{ steps.cpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Failed | ${{ steps.cpu_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
-          RESULT="success"
-          if [ "${{ steps.cpu_run.outcome }}" = "failure" ]; then
-            RESULT="completed with failures"
-          elif [ "${{ steps.cpu_run.outcome }}" = "skipped" ]; then
-            RESULT="skipped"
+          echo "| Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
+          if [ "${FAILED}" -gt 0 ] 2>/dev/null; then
+            echo "| Result | \`completed with failures\` |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Result | \`success\` |" >> $GITHUB_STEP_SUMMARY
           fi
-          echo "| Result | \`${RESULT}\` |" >> $GITHUB_STEP_SUMMARY
           if [ -n "$ERRORS_OUTPUT" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
@@ -463,15 +462,14 @@ jobs:
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
+          FAILED="${{ steps.inductor_run.outputs.failed || '0' }}"
           echo "| Passed | ${{ steps.inductor_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Failed | ${{ steps.inductor_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
-          RESULT="success"
-          if [ "${{ steps.inductor_run.outcome }}" = "failure" ]; then
-            RESULT="completed with failures"
-          elif [ "${{ steps.inductor_run.outcome }}" = "skipped" ]; then
-            RESULT="skipped"
+          echo "| Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
+          if [ "${FAILED}" -gt 0 ] 2>/dev/null; then
+            echo "| Result | \`completed with failures\` |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Result | \`success\` |" >> $GITHUB_STEP_SUMMARY
           fi
-          echo "| Result | \`${RESULT}\` |" >> $GITHUB_STEP_SUMMARY
           if [ -n "$ERRORS_OUTPUT" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
@@ -589,17 +587,16 @@ jobs:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| GPUs | ${{ steps.gpu_check.outputs.gpu_count }} |" >> $GITHUB_STEP_SUMMARY
+          FAILED="${{ steps.sgpu_run.outputs.failed || '0' }}"
           echo "| Passed | ${{ steps.sgpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Failed | ${{ steps.sgpu_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
-          RESULT="skipped (no GPU)"
-          if [ "${{ steps.gpu_check.outputs.gpu_available }}" = "true" ]; then
-            if [ "${{ steps.sgpu_run.outcome }}" = "failure" ]; then
-              RESULT="completed with failures"
-            else
-              RESULT="success"
-            fi
+          echo "| Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.gpu_check.outputs.gpu_available }}" != "true" ]; then
+            echo "| Result | \`skipped (no GPU)\` |" >> $GITHUB_STEP_SUMMARY
+          elif [ "${FAILED}" -gt 0 ] 2>/dev/null; then
+            echo "| Result | \`completed with failures\` |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Result | \`success\` |" >> $GITHUB_STEP_SUMMARY
           fi
-          echo "| Result | \`${RESULT}\` |" >> $GITHUB_STEP_SUMMARY
           if [ -n "$ERRORS_OUTPUT" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
@@ -722,17 +719,16 @@ jobs:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| GPUs | ${{ steps.gpu_check.outputs.gpu_count }} |" >> $GITHUB_STEP_SUMMARY
+          FAILED="${{ steps.mgpu_run.outputs.failed || '0' }}"
           echo "| Passed | ${{ steps.mgpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Failed | ${{ steps.mgpu_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
-          RESULT="skipped (need 2+ GPUs)"
-          if [ "${{ steps.gpu_check.outputs.mgpu_available }}" = "true" ]; then
-            if [ "${{ steps.mgpu_run.outcome }}" = "failure" ]; then
-              RESULT="completed with failures"
-            else
-              RESULT="success"
-            fi
+          echo "| Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.gpu_check.outputs.mgpu_available }}" != "true" ]; then
+            echo "| Result | \`skipped (need 2+ GPUs)\` |" >> $GITHUB_STEP_SUMMARY
+          elif [ "${FAILED}" -gt 0 ] 2>/dev/null; then
+            echo "| Result | \`completed with failures\` |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Result | \`success\` |" >> $GITHUB_STEP_SUMMARY
           fi
-          echo "| Result | \`${RESULT}\` |" >> $GITHUB_STEP_SUMMARY
           if [ -n "$ERRORS_OUTPUT" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
