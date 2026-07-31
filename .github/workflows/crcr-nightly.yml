@@ -360,7 +360,13 @@ jobs:
           echo "| Mode | \`${{ needs.determine-tests.outputs.mode }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Passed | ${{ steps.cpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Failed | ${{ steps.cpu_run.outputs.failed || '—' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Result | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
+          RESULT="success"
+          if [ "${{ steps.cpu_run.outcome }}" = "failure" ]; then
+            RESULT="completed with failures"
+          elif [ "${{ steps.cpu_run.outcome }}" = "skipped" ]; then
+            RESULT="skipped"
+          fi
+          echo "| Result | \`${RESULT}\` |" >> $GITHUB_STEP_SUMMARY
           if [ -n "$ERRORS_OUTPUT" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
