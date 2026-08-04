@@ -298,6 +298,45 @@ MGPU_TESTS: list[tuple[str, Optional[str], float]] = [
     ("distributed/_tools/test_fake_collectives", None, 3),
 ]
 
+# Critical tests: always run regardless of delta determination.
+# These cover core subsystem health and must never be skipped.
+CRITICAL_CPU_TESTS: list[tuple[str, Optional[str], float]] = [
+    ("test_torch", None, 25),
+    ("test_autograd", None, 20),
+    ("test_linalg", None, 20),
+    ("test_sparse", None, 15),
+    ("test_unary_ufuncs", None, 10),
+    ("test_binary_ufuncs", None, 10),
+]
+
+CRITICAL_INDUCTOR_TESTS: list[tuple[str, Optional[str], float]] = [
+    ("inductor/test_torchinductor", None, 30),
+    ("inductor/test_cpu_repro", None, 15),
+]
+
+CRITICAL_SGPU_TESTS: list[tuple[str, Optional[str], float]] = [
+    ("test_nn", None, 30),
+    ("test_torch", None, 25),
+    ("test_cuda", None, 15),
+    ("test_ops", None, 20),
+    ("test_unary_ufuncs", None, 10),
+    ("test_binary_ufuncs", None, 10),
+    ("test_autograd", None, 20),
+]
+
+CRITICAL_MGPU_TESTS: list[tuple[str, Optional[str], float]] = [
+    ("distributed/test_c10d_common", None, 15),
+    ("distributed/test_c10d_nccl", None, 30),
+    ("distributed/test_distributed_spawn", None, 15),
+]
+
+CRITICAL_SUITES = {
+    "cpu": CRITICAL_CPU_TESTS,
+    "inductor": CRITICAL_INDUCTOR_TESTS,
+    "sgpu": CRITICAL_SGPU_TESTS,
+    "mgpu": CRITICAL_MGPU_TESTS,
+}
+
 # Tests that unconditionally require CUDA driver initialization
 # and must be excluded from CPU and Inductor categories
 CUDA_ONLY_TESTS = {
@@ -355,11 +394,14 @@ def main():
     parser.add_argument("--all", action="store_true", help="Output all categories as JSON")
     parser.add_argument("--commands-only", action="store_true",
                         help="Output only commands, one per line")
+    parser.add_argument("--critical", action="store_true",
+                        help="Output only critical tests for the category")
     args = parser.parse_args()
 
     if args.all:
         output = {}
         for name, suite in SUITES.items():
+            critical = CRITICAL_SUITES[name]
             output[name] = {
                 "tests": [
                     {"name": n, "filter": k, "est_min": e}
@@ -367,6 +409,12 @@ def main():
                 ],
                 "commands": get_commands(suite),
                 "estimated_minutes": get_estimated_minutes(suite),
+                "critical_tests": [
+                    {"name": n, "filter": k, "est_min": e}
+                    for n, k, e in critical
+                ],
+                "critical_commands": get_commands(critical),
+                "critical_estimated_minutes": get_estimated_minutes(critical),
             }
         print(json.dumps(output, indent=2))
         return
@@ -375,15 +423,16 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    suite = SUITES[args.category]
+    suite = CRITICAL_SUITES[args.category] if args.critical else SUITES[args.category]
     commands = get_commands(suite)
 
     if args.commands_only:
         for cmd in commands:
             print(cmd)
     else:
+        label = "Critical" if args.critical else "Full"
         est = get_estimated_minutes(suite)
-        print(f"Category: {args.category}")
+        print(f"Category: {args.category} ({label})")
         print(f"Tests: {len(suite)}")
         print(f"Estimated time: ~{est:.0f} min")
         print()
