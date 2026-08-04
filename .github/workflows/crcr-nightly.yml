@@ -126,6 +126,17 @@ jobs:
           echo "| Local Image | \`${IMAGE_TAG}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Quay Image | \`${QUAY_TAG}\` |" >> $GITHUB_STEP_SUMMARY
 
+      - name: Report to CRCR
+        if: always()
+        continue-on-error: true
+        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
+        with:
+          status: completed
+          conclusion: ${{ job.status }}
+          delivery-id: ${{ steps.sha.outputs.sha }}
+          event-type: nightly
+          job-name: build
+
   determine-tests:
     name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / determine-tests"
     needs: build
@@ -381,6 +392,17 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Report to CRCR
+        if: always()
+        continue-on-error: true
+        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
+        with:
+          status: completed
+          conclusion: ${{ job.status }}
+          delivery-id: ${{ needs.build.outputs.sha }}
+          event-type: nightly
+          job-name: test (cpu)
+
 
   inductor-tests:
     name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)"
@@ -489,6 +511,17 @@ jobs:
             echo "$ERRORS_OUTPUT" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
+
+      - name: Report to CRCR
+        if: always()
+        continue-on-error: true
+        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
+        with:
+          status: completed
+          conclusion: ${{ job.status }}
+          delivery-id: ${{ needs.build.outputs.sha }}
+          event-type: nightly
+          job-name: test (inductor)
 
 
   sgpu-tests:
@@ -617,6 +650,17 @@ jobs:
             echo "$ERRORS_OUTPUT" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
+
+      - name: Report to CRCR
+        if: always()
+        continue-on-error: true
+        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
+        with:
+          status: completed
+          conclusion: ${{ job.status }}
+          delivery-id: ${{ needs.build.outputs.sha }}
+          event-type: nightly
+          job-name: test (sgpu)
 
 
   mgpu-tests:
@@ -751,3 +795,13 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Report to CRCR
+        if: always()
+        continue-on-error: true
+        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
+        with:
+          status: completed
+          conclusion: ${{ job.status }}
+          delivery-id: ${{ needs.build.outputs.sha }}
+          event-type: nightly
+          job-name: test (mgpu)
