@@ -18,9 +18,11 @@ env:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   build:
+    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / build"
     runs-on: linux.rhel96
     timeout-minutes: 600
     outputs:
@@ -125,6 +127,7 @@ jobs:
           echo "| Quay Image | \`${QUAY_TAG}\` |" >> $GITHUB_STEP_SUMMARY
 
   determine-tests:
+    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / determine-tests"
     needs: build
     runs-on: linux.rhel96
     timeout-minutes: 600
@@ -247,6 +250,7 @@ jobs:
           done
 
   cpu-tests:
+    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (cpu, linux.rhel96)"
     needs: [build, determine-tests]
     runs-on: linux.rhel96
     timeout-minutes: 1440
@@ -379,6 +383,7 @@ jobs:
 
 
   inductor-tests:
+    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)"
     needs: [build, determine-tests, cpu-tests]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: linux.rhel96
@@ -487,6 +492,7 @@ jobs:
 
 
   sgpu-tests:
+    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96)"
     needs: [build, determine-tests, inductor-tests]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: linux.rhel96
@@ -614,6 +620,7 @@ jobs:
 
 
   mgpu-tests:
+    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96)"
     needs: [build, determine-tests, sgpu-tests]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: linux.rhel96
