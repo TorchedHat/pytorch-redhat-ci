@@ -13,6 +13,8 @@ env:
   NIGHTLY_BRANCH: nightly
   QUAY_REGISTRY: quay.io/aipcc/pytorch
   CUDA_VERSION: "13_0"
+  # Set to "true" to enable delta test determination; "false" runs critical tests only
+  RUN_DELTA: "false"
 
 permissions:
   contents: read
@@ -148,7 +150,7 @@ jobs:
           # (they call torch.Stream() or similar without guarding)
           CUDA_ONLY_TESTS="test_overrides"
 
-          if [ -n "${PREV_SHA}" ]; then
+          if [ "${RUN_DELTA}" = "true" ] && [ -n "${PREV_SHA}" ]; then
             echo "Delta mode: comparing ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
             # Heuristic + structural analysis (C++ call graph is
             # pre-built and cached inside the image after the first run)
