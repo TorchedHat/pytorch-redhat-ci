@@ -298,6 +298,34 @@ MGPU_TESTS: list[tuple[str, Optional[str], float]] = [
     ("distributed/_tools/test_fake_collectives", None, 3),
 ]
 
+# Sanity tests: minimal fast-running subset for pipeline validation.
+SANITY_CPU_TESTS: list[tuple[str, Optional[str], float]] = [
+    ("test_dlpack", None, 3),
+    ("test_pytree", None, 3),
+]
+
+SANITY_INDUCTOR_TESTS: list[tuple[str, Optional[str], float]] = [
+    ("inductor/test_smoke", None, 3),
+    ("inductor/test_config", None, 3),
+]
+
+SANITY_SGPU_TESTS: list[tuple[str, Optional[str], float]] = [
+    ("test_cuda_primary_ctx", None, 3),
+    ("test_cuda_nvml_based_avail", None, 3),
+]
+
+SANITY_MGPU_TESTS: list[tuple[str, Optional[str], float]] = [
+    ("distributed/_tools/test_fake_collectives", None, 3),
+    ("distributed/test_fake_pg", None, 5),
+]
+
+SANITY_SUITES = {
+    "cpu": SANITY_CPU_TESTS,
+    "inductor": SANITY_INDUCTOR_TESTS,
+    "sgpu": SANITY_SGPU_TESTS,
+    "mgpu": SANITY_MGPU_TESTS,
+}
+
 # Critical tests: always run regardless of delta determination.
 # These cover core subsystem health and must never be skipped.
 CRITICAL_CPU_TESTS: list[tuple[str, Optional[str], float]] = [
@@ -396,6 +424,8 @@ def main():
                         help="Output only commands, one per line")
     parser.add_argument("--critical", action="store_true",
                         help="Output only critical tests for the category")
+    parser.add_argument("--sanity", action="store_true",
+                        help="Output only sanity tests for the category")
     args = parser.parse_args()
 
     if args.all:
@@ -423,14 +453,19 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    suite = CRITICAL_SUITES[args.category] if args.critical else SUITES[args.category]
+    if args.sanity:
+        suite = SANITY_SUITES[args.category]
+    elif args.critical:
+        suite = CRITICAL_SUITES[args.category]
+    else:
+        suite = SUITES[args.category]
     commands = get_commands(suite)
 
     if args.commands_only:
         for cmd in commands:
             print(cmd)
     else:
-        label = "Critical" if args.critical else "Full"
+        label = "Sanity" if args.sanity else ("Critical" if args.critical else "Full")
         est = get_estimated_minutes(suite)
         print(f"Category: {args.category} ({label})")
         print(f"Tests: {len(suite)}")
