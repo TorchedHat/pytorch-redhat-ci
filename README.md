@@ -103,6 +103,19 @@ The unified merger (`merge_test_results.py`) runs both tools and deduplicates re
 
 Test commands are validated against `run_test.py`'s accepted test list before execution to filter out invalid entries. Tests that unconditionally require a CUDA driver (e.g., `test_overrides`) are excluded from CPU and Inductor categories.
 
+### Critical Tests
+
+A fixed set of critical tests always runs regardless of what the delta determines. These cover core subsystem health and are prepended to the delta results (deduplicated):
+
+| Category | Critical Tests |
+|----------|---------------|
+| **cpu** | `test_torch`, `test_autograd`, `test_linalg`, `test_sparse`, `test_unary_ufuncs`, `test_binary_ufuncs` |
+| **inductor** | `inductor/test_torchinductor`, `inductor/test_cpu_repro` |
+| **sgpu** | `test_nn`, `test_torch`, `test_cuda`, `test_ops`, `test_unary_ufuncs`, `test_binary_ufuncs`, `test_autograd` |
+| **mgpu** | `distributed/test_c10d_common`, `distributed/test_c10d_nccl`, `distributed/test_distributed_spawn` |
+
+To list critical tests for a category: `python scripts/test_config.py cpu --critical --commands-only`
+
 **Environment variables:**
 - `STRUCTURAL_ANALYSIS_DEPTH` — Override call graph walk depth (default: 3)
 - `CONTINUE_THROUGH_ERROR` — Set to `True` inside containers; allows all tests to run even if some fail
