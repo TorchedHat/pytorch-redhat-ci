@@ -16,7 +16,7 @@ env:
   # Set to "true" to enable delta test determination; "false" uses TEST_TIER
   RUN_DELTA: "false"
   # Which test tier to use when RUN_DELTA is false: "sanity", "critical", or "full"
-  TEST_TIER: "sanity"
+  TEST_TIER: "critical"
 
 permissions:
   contents: read
