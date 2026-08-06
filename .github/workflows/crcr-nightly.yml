@@ -13,9 +13,8 @@ env:
   NIGHTLY_BRANCH: nightly
   QUAY_REGISTRY: quay.io/aipcc/pytorch
   CUDA_VERSION: "13_0"
-  # Set to "true" to enable delta test determination; "false" uses TEST_TIER
-  RUN_DELTA: "false"
-  # Which test tier to use when RUN_DELTA is false: "sanity", "critical", or "full"
+  # Test tier: "sanity", "critical", "full", or "delta"
+  # delta = diff-based determination merged with critical tests
   TEST_TIER: "critical"
 
 permissions:
@@ -166,7 +165,7 @@ jobs:
           # (they call torch.Stream() or similar without guarding)
           CUDA_ONLY_TESTS="test_overrides"
 
-          if [ "${RUN_DELTA}" = "true" ] && [ -n "${PREV_SHA}" ]; then
+          if [ "${TEST_TIER}" = "delta" ] && [ -n "${PREV_SHA}" ]; then
             echo "Delta mode: comparing ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
             # Heuristic + structural analysis (C++ call graph is
             # pre-built and cached inside the image after the first run)
@@ -223,11 +222,12 @@ jobs:
 
           # Resolve final test list per category
           TIER_FLAG=""
-          if [ "${TEST_TIER}" = "sanity" ]; then
-            TIER_FLAG="--sanity"
-          elif [ "${TEST_TIER}" = "critical" ]; then
-            TIER_FLAG="--critical"
-          fi
+          case "${TEST_TIER}" in
+            sanity)   TIER_FLAG="--sanity" ;;
+            critical) TIER_FLAG="--critical" ;;
+            full)     TIER_FLAG="" ;;
+            delta)    TIER_FLAG="--critical" ;;  # fallback when delta produces nothing
+          esac
 
           for cat in cpu inductor sgpu mgpu; do
             VAR="${cat}_tests"
