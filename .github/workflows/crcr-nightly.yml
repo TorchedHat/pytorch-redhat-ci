@@ -136,7 +136,7 @@ jobs:
           conclusion: ${{ job.status }}
           delivery-id: ${{ steps.sha.outputs.sha }}
           event-type: nightly
-          job-name: build
+          job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / build"
 
   determine-tests:
     name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / determine-tests"
@@ -414,7 +414,7 @@ jobs:
           conclusion: ${{ job.status }}
           delivery-id: ${{ needs.build.outputs.sha }}
           event-type: nightly
-          job-name: test (cpu)
+          job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (cpu, linux.rhel96)"
 
 
   inductor-tests:
@@ -534,7 +534,7 @@ jobs:
           conclusion: ${{ job.status }}
           delivery-id: ${{ needs.build.outputs.sha }}
           event-type: nightly
-          job-name: test (inductor)
+          job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)"
 
 
   sgpu-tests:
@@ -673,7 +673,7 @@ jobs:
           conclusion: ${{ job.status }}
           delivery-id: ${{ needs.build.outputs.sha }}
           event-type: nightly
-          job-name: test (sgpu)
+          job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96)"
 
 
   mgpu-tests:
@@ -817,4 +817,4 @@ jobs:
           conclusion: ${{ job.status }}
           delivery-id: ${{ needs.build.outputs.sha }}
           event-type: nightly
-          job-name: test (mgpu)
+          job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96)"
