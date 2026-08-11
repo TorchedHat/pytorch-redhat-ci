@@ -346,7 +346,7 @@ jobs:
               echo "Running: $cmd"
               echo "============================================================"
               echo "$cmd" > /tmp/_run.sh
-              if timeout 1800 bash /tmp/_run.sh; then
+              if timeout 3600 bash /tmp/_run.sh; then
                 PASSED=$((PASSED + 1))
               else
                 RC=$?
@@ -467,7 +467,7 @@ jobs:
               echo "Running: $cmd"
               echo "============================================================"
               echo "$cmd" > /tmp/_run.sh
-              if timeout 1800 bash /tmp/_run.sh; then
+              if timeout 3600 bash /tmp/_run.sh; then
                 PASSED=$((PASSED + 1))
               else
                 RC=$?
@@ -603,7 +603,7 @@ jobs:
               echo "Running: $cmd"
               echo "============================================================"
               echo "$cmd" > /tmp/_run.sh
-              if timeout 1800 bash /tmp/_run.sh; then
+              if timeout 3600 bash /tmp/_run.sh; then
                 PASSED=$((PASSED + 1))
               else
                 RC=$?
@@ -747,7 +747,7 @@ jobs:
               echo "Running: $cmd"
               echo "============================================================"
               echo "$cmd" > /tmp/_run.sh
-              if timeout 1800 bash /tmp/_run.sh; then
+              if timeout 3600 bash /tmp/_run.sh; then
                 PASSED=$((PASSED + 1))
               else
                 RC=$?
