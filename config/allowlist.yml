@@ -1,0 +1,7 @@
+# Repos authorized to send results to the RHEL Results Relay.
+# Each entry is a GitHub owner/repo whose GHA OIDC tokens will be accepted.
+allowed_repos:
+  - TorchedHat/pytorch-redhat-ci    # our own nightly workflow
+  - subinz1/CRCR                    # test repo
+  # - spyre-ai/spyre-pytorch        # uncomment when onboarded
+  # - partner-org/partner-repo
