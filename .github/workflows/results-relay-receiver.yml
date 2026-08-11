@@ -1,0 +1,77 @@
+name: "Results Relay: Receive External CI Results"
+
+on:
+  repository_dispatch:
+    types: [external-ci-result]
+
+env:
+  PUSH_TO_HUD: "false"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  process-result:
+    name: "Process external CI result"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display received results
+        env:
+          SOURCE_REPO: ${{ github.event.client_payload.source_repo }}
+          EVENT_TYPE: ${{ github.event.client_payload.event_type }}
+          DELIVERY_ID: ${{ github.event.client_payload.delivery_id }}
+          JOB_NAME: ${{ github.event.client_payload.job_name }}
+          STATUS: ${{ github.event.client_payload.status }}
+          CONCLUSION: ${{ github.event.client_payload.conclusion }}
+          WORKFLOW_NAME: ${{ github.event.client_payload.workflow_name }}
+          RUN_ID: ${{ github.event.client_payload.run_id }}
+          RUN_ATTEMPT: ${{ github.event.client_payload.run_attempt }}
+          FULL_PAYLOAD: ${{ toJson(github.event.client_payload) }}
+        run: |
+          echo "============================================"
+          echo "  External CI Result Received"
+          echo "============================================"
+          echo ""
+          echo "Source Repo:    ${SOURCE_REPO}"
+          echo "Event Type:     ${EVENT_TYPE}"
+          echo "Delivery ID:    ${DELIVERY_ID}"
+          echo "Job Name:       ${JOB_NAME}"
+          echo "Status:         ${STATUS}"
+          echo "Conclusion:     ${CONCLUSION}"
+          echo "Workflow:       ${WORKFLOW_NAME}"
+          echo "Run ID:         ${RUN_ID}"
+          echo "Run Attempt:    ${RUN_ATTEMPT}"
+          echo ""
+          echo "--- Full Payload ---"
+          echo "${FULL_PAYLOAD}" | python3 -m json.tool 2>/dev/null || echo "${FULL_PAYLOAD}"
+          echo ""
+
+          echo "## External CI Result" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Source Repo | \`${SOURCE_REPO}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Event Type | \`${EVENT_TYPE}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Delivery ID | \`${DELIVERY_ID}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Job Name | \`${JOB_NAME}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | \`${STATUS}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Conclusion | \`${CONCLUSION}\` |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Forward to CRCR/HUD
+        if: env.PUSH_TO_HUD == 'true'
+        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
+        with:
+          status: completed
+          conclusion: ${{ github.event.client_payload.conclusion }}
+          delivery-id: ${{ github.event.client_payload.delivery_id }}
+          event-type: ${{ github.event.client_payload.event_type }}
+          job-name: ${{ github.event.client_payload.job_name }}
+
+      - name: HUD push status
+        run: |
+          if [ "${PUSH_TO_HUD}" = "true" ]; then
+            echo "Results forwarded to CRCR/HUD"
+          else
+            echo "HUD push is disabled (PUSH_TO_HUD=false). Set to 'true' to enable."
+          fi
