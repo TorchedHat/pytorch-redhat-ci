@@ -98,37 +98,11 @@ jobs:
       - name: Prepare sccache cache
         id: sccache
         run: |
-          SCCACHE_ENABLED="${{ github.event.inputs.sccache_enabled || 'true' }}"
-          SCCACHE_CACHE_VERSION="${{ github.event.inputs.sccache_cache_version || 'v1' }}"
-          SCCACHE_MAX_AGE_DAYS="${{ github.event.inputs.sccache_max_age_days || '30' }}"
-          FLUSH_SCCACHE="${{ github.event.inputs.sccache_flush || 'false' }}"
-
-          SCCACHE_CACHE_DIR="$HOME/sccache-cache/crcr-rhel96/${SCCACHE_CACHE_VERSION}"
-          mkdir -p "${SCCACHE_CACHE_DIR}"
-
-          # TTL cleanup — remove entries older than N days
-          if [ -n "${SCCACHE_MAX_AGE_DAYS}" ] && [ "${SCCACHE_MAX_AGE_DAYS}" -gt 0 ] 2>/dev/null; then
-            echo "Cleaning sccache entries older than ${SCCACHE_MAX_AGE_DAYS} days"
-            find "${SCCACHE_CACHE_DIR}" -type f -mtime +${SCCACHE_MAX_AGE_DAYS} -delete 2>/dev/null || true
-          fi
-
-          # On-demand flush
-          if [ "${FLUSH_SCCACHE}" == "true" ]; then
-            echo "Flushing entire sccache directory"
-            rm -rf "${SCCACHE_CACHE_DIR}"/*
-          fi
-
-          # Kill switch — omit volume mount to build without cache
-          if [ "${SCCACHE_ENABLED}" == "false" ]; then
-            echo "sccache disabled — building without cache"
-            echo "volume_arg=" >> "$GITHUB_OUTPUT"
-          else
-            CACHE_SIZE=$(du -sh "${SCCACHE_CACHE_DIR}" 2>/dev/null | cut -f1 || echo "empty")
-            CACHE_FILES=$(find "${SCCACHE_CACHE_DIR}" -type f 2>/dev/null | wc -l || echo "0")
-            echo "sccache enabled — cache at ${SCCACHE_CACHE_DIR} (${CACHE_SIZE}, ${CACHE_FILES} files)"
-            echo "volume_arg=--volume ${SCCACHE_CACHE_DIR}:/sccache:Z" >> "$GITHUB_OUTPUT"
-          fi
-          echo "cache_dir=${SCCACHE_CACHE_DIR}" >> "$GITHUB_OUTPUT"
+          scripts/sccache_prepare.sh \
+            --enabled "${{ github.event.inputs.sccache_enabled || 'true' }}" \
+            --flush "${{ github.event.inputs.sccache_flush || 'false' }}" \
+            --version "${{ github.event.inputs.sccache_cache_version || 'v1' }}" \
+            --max-age-days "${{ github.event.inputs.sccache_max_age_days || '30' }}"
 
       - name: Build container image
         env:
@@ -155,21 +129,10 @@ jobs:
 
       - name: sccache build statistics
         if: always() && steps.sccache.outputs.volume_arg != ''
-        env:
-          IMAGE_TAG: ${{ steps.sha.outputs.image_tag }}
-          SCCACHE_CACHE_DIR: ${{ steps.sccache.outputs.cache_dir }}
         run: |
-          echo "=== sccache host cache ==="
-          if [ -d "${SCCACHE_CACHE_DIR}" ]; then
-            echo "Cache size: $(du -sh "${SCCACHE_CACHE_DIR}" 2>/dev/null | cut -f1 || echo 'N/A')"
-            echo "Cache files: $(find "${SCCACHE_CACHE_DIR}" -type f 2>/dev/null | wc -l || echo 'N/A')"
-          fi
-          echo ""
-          echo "=== sccache compilation stats ==="
-          if podman image exists "${IMAGE_TAG}" 2>/dev/null; then
-            podman run --rm "${IMAGE_TAG}" bash -c \
-              'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && sccache --show-stats 2>/dev/null' || true
-          fi
+          scripts/sccache_stats.sh \
+            --image "${{ steps.sha.outputs.image_tag }}" \
+            --cache-dir "${{ steps.sccache.outputs.cache_dir }}"
 
       - name: Tag and push to Quay.io
         env:
