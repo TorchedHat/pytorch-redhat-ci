@@ -4,9 +4,14 @@ on:
   schedule:
     - cron: "30 8 * * *"  # daily at 08:30 UTC, ~30 min after pytorch/pytorch nightly update
   workflow_dispatch:
+    inputs:
+      sha:
+        description: "pytorch/pytorch SHA to build against (leave empty for latest nightly)"
+        required: false
+        default: ""
 
 run-name: >-
-  [Nightly] RHEL 9.6 @ ${{ github.event_name == 'schedule' && 'cron' || 'manual' }}
+  [Nightly] RHEL 9.6 @ ${{ github.event_name == 'schedule' && 'cron' || inputs.sha && 'manual-' || 'manual' }}${{ inputs.sha && format(' ({0})', inputs.sha) || '' }}
 
 env:
   UPSTREAM_REPO: pytorch/pytorch
@@ -37,31 +42,39 @@ jobs:
 
       - name: Fetch source SHAs from nightly branch
         id: sha
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
         run: |
-          NIGHTLY_COMMITS=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/commits?sha=${NIGHTLY_BRANCH}&per_page=2" | jq -r '.[].sha')
-          NIGHTLY_SHA=$(echo "$NIGHTLY_COMMITS" | head -1)
-          PREV_NIGHTLY_SHA=$(echo "$NIGHTLY_COMMITS" | tail -1)
-
-          if [ -z "$NIGHTLY_SHA" ]; then
-            echo "::error::Could not resolve HEAD for ${UPSTREAM_REPO}/${NIGHTLY_BRANCH}"
-            exit 1
-          fi
-
-          extract_source_sha() {
-            local COMMIT_MSG=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/commits/$1" | jq -r '.commit.message')
-            echo "$COMMIT_MSG" | grep -oP '\(([a-f0-9]{40})\)' | tr -d '()'
-          }
-
-          SOURCE_SHA=$(extract_source_sha "$NIGHTLY_SHA")
-          if [ -z "$SOURCE_SHA" ]; then
-            echo "::error::Could not extract source SHA from latest nightly commit"
-            exit 1
-          fi
-
-          PREV_SOURCE_SHA=$(extract_source_sha "$PREV_NIGHTLY_SHA")
-          if [ -z "$PREV_SOURCE_SHA" ]; then
-            echo "::warning::Could not extract previous source SHA, will run full test suite"
+          if [ -n "$INPUT_SHA" ]; then
+            echo "Using manually provided SHA: $INPUT_SHA"
+            SOURCE_SHA="$INPUT_SHA"
             PREV_SOURCE_SHA=""
+          else
+            NIGHTLY_COMMITS=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/commits?sha=${NIGHTLY_BRANCH}&per_page=2" | jq -r '.[].sha')
+            NIGHTLY_SHA=$(echo "$NIGHTLY_COMMITS" | head -1)
+            PREV_NIGHTLY_SHA=$(echo "$NIGHTLY_COMMITS" | tail -1)
+
+            if [ -z "$NIGHTLY_SHA" ]; then
+              echo "::error::Could not resolve HEAD for ${UPSTREAM_REPO}/${NIGHTLY_BRANCH}"
+              exit 1
+            fi
+
+            extract_source_sha() {
+              local COMMIT_MSG=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/commits/$1" | jq -r '.commit.message')
+              echo "$COMMIT_MSG" | grep -oP '\(([a-f0-9]{40})\)' | tr -d '()'
+            }
+
+            SOURCE_SHA=$(extract_source_sha "$NIGHTLY_SHA")
+            if [ -z "$SOURCE_SHA" ]; then
+              echo "::error::Could not extract source SHA from latest nightly commit"
+              exit 1
+            fi
+
+            PREV_SOURCE_SHA=$(extract_source_sha "$PREV_NIGHTLY_SHA")
+            if [ -z "$PREV_SOURCE_SHA" ]; then
+              echo "::warning::Could not extract previous source SHA, will run full test suite"
+              PREV_SOURCE_SHA=""
+            fi
           fi
 
           echo "Source main SHA (current): $SOURCE_SHA"
