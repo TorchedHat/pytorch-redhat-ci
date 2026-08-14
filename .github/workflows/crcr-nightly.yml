@@ -405,13 +405,25 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Determine conclusion
+        id: conclusion
+        if: always()
+        env:
+          FAILED: ${{ steps.cpu_run.outputs.failed }}
+        run: |
+          if [ -n "$FAILED" ] && [ "$FAILED" != "0" ]; then
+            echo "value=failure" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ job.status }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Report to CRCR
         if: always()
         continue-on-error: true
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
           status: completed
-          conclusion: ${{ job.status }}
+          conclusion: ${{ steps.conclusion.outputs.value }}
           delivery-id: ${{ needs.build.outputs.sha }}
           event-type: nightly
           job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (cpu, linux.rhel96)"
@@ -525,13 +537,25 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Determine conclusion
+        id: conclusion
+        if: always()
+        env:
+          FAILED: ${{ steps.inductor_run.outputs.failed }}
+        run: |
+          if [ -n "$FAILED" ] && [ "$FAILED" != "0" ]; then
+            echo "value=failure" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ job.status }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Report to CRCR
         if: always()
         continue-on-error: true
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
           status: completed
-          conclusion: ${{ job.status }}
+          conclusion: ${{ steps.conclusion.outputs.value }}
           delivery-id: ${{ needs.build.outputs.sha }}
           event-type: nightly
           job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)"
@@ -664,13 +688,25 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Determine conclusion
+        id: conclusion
+        if: always()
+        env:
+          FAILED: ${{ steps.sgpu_run.outputs.failed }}
+        run: |
+          if [ -n "$FAILED" ] && [ "$FAILED" != "0" ]; then
+            echo "value=failure" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ job.status }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Report to CRCR
         if: always()
         continue-on-error: true
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
           status: completed
-          conclusion: ${{ job.status }}
+          conclusion: ${{ steps.conclusion.outputs.value }}
           delivery-id: ${{ needs.build.outputs.sha }}
           event-type: nightly
           job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96)"
@@ -808,13 +844,25 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Determine conclusion
+        id: conclusion
+        if: always()
+        env:
+          FAILED: ${{ steps.mgpu_run.outputs.failed }}
+        run: |
+          if [ -n "$FAILED" ] && [ "$FAILED" != "0" ]; then
+            echo "value=failure" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ job.status }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Report to CRCR
         if: always()
         continue-on-error: true
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
           status: completed
-          conclusion: ${{ job.status }}
+          conclusion: ${{ steps.conclusion.outputs.value }}
           delivery-id: ${{ needs.build.outputs.sha }}
           event-type: nightly
           job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96)"
