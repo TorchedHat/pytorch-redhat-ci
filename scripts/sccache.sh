@@ -35,13 +35,13 @@ cmd_prepare() {
   # TTL cleanup — remove entries older than N days
   if [ -n "${SCCACHE_MAX_AGE_DAYS}" ] && [ "${SCCACHE_MAX_AGE_DAYS}" -gt 0 ] 2>/dev/null; then
     echo "Cleaning sccache entries older than ${SCCACHE_MAX_AGE_DAYS} days"
-    find "${SCCACHE_CACHE_DIR}" -type f -mtime +${SCCACHE_MAX_AGE_DAYS} -delete 2>/dev/null || true
+    find "${SCCACHE_CACHE_DIR}" -type f -mtime +"${SCCACHE_MAX_AGE_DAYS}" -delete 2>/dev/null || true
   fi
 
   # On-demand flush
   if [ "${FLUSH_SCCACHE}" == "true" ]; then
     echo "Flushing entire sccache directory"
-    rm -rf "${SCCACHE_CACHE_DIR}"/*
+    rm -rf "${SCCACHE_CACHE_DIR:?}"/*
   fi
 
   # Kill switch — omit volume mount to build without cache
@@ -49,8 +49,10 @@ cmd_prepare() {
   if [ "${SCCACHE_ENABLED}" == "false" ]; then
     echo "sccache disabled — building without cache"
   else
-    local CACHE_SIZE=$(du -sh "${SCCACHE_CACHE_DIR}" 2>/dev/null | cut -f1 || echo "empty")
-    local CACHE_FILES=$(find "${SCCACHE_CACHE_DIR}" -type f 2>/dev/null | wc -l || echo "0")
+    local CACHE_SIZE
+    CACHE_SIZE=$(du -sh "${SCCACHE_CACHE_DIR}" 2>/dev/null | cut -f1 || echo "empty")
+    local CACHE_FILES
+    CACHE_FILES=$(find "${SCCACHE_CACHE_DIR}" -type f 2>/dev/null | wc -l || echo "0")
     echo "sccache enabled — cache at ${SCCACHE_CACHE_DIR} (${CACHE_SIZE}, ${CACHE_FILES} files)"
     VOLUME_ARG="--volume ${SCCACHE_CACHE_DIR}:/sccache:Z"
   fi
