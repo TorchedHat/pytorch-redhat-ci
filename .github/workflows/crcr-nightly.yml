@@ -2,7 +2,7 @@ name: "CRCR Nightly: RHEL 9.6 Build & Test"
 
 on:
   schedule:
-    - cron: "0 4 * * *"  # daily at 04:00 UTC
+    - cron: "30 8 * * *"  # daily at 08:30 UTC, ~30 min after pytorch/pytorch nightly update
   workflow_dispatch:
 
 run-name: >-
