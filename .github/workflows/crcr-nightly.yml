@@ -95,14 +95,9 @@ jobs:
         run: |
           echo "$QUAY_PASSWORD" | podman login quay.io -u "$QUAY_USERNAME" --password-stdin
 
-      - name: Prepare sccache cache
+      - name: Set up sccache
         id: sccache
-        run: |
-          scripts/sccache_prepare.sh \
-            --enabled "${{ github.event.inputs.sccache_enabled || 'true' }}" \
-            --flush "${{ github.event.inputs.sccache_flush || 'false' }}" \
-            --version "${{ github.event.inputs.sccache_cache_version || 'v1' }}" \
-            --max-age-days "${{ github.event.inputs.sccache_max_age_days || '30' }}"
+        run: scripts/sccache.sh prepare
 
       - name: Build container image
         env:
@@ -130,7 +125,7 @@ jobs:
       - name: sccache build statistics
         if: always() && steps.sccache.outputs.volume_arg != ''
         run: |
-          scripts/sccache_stats.sh \
+          scripts/sccache.sh stats \
             --image "${{ steps.sha.outputs.image_tag }}" \
             --cache-dir "${{ steps.sccache.outputs.cache_dir }}"
 
@@ -157,8 +152,7 @@ jobs:
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| Local Image | \`${IMAGE_TAG}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Quay Image | \`${QUAY_TAG}\` |" >> $GITHUB_STEP_SUMMARY
-          SCCACHE_ENABLED="${{ github.event.inputs.sccache_enabled || 'true' }}"
-          if [ "${SCCACHE_ENABLED}" == "true" ] && [ -d "${SCCACHE_CACHE_DIR}" ]; then
+          if [ -d "${SCCACHE_CACHE_DIR}" ]; then
             CACHE_SIZE=$(du -sh "${SCCACHE_CACHE_DIR}" 2>/dev/null | cut -f1 || echo "N/A")
             echo "| sccache | \`enabled\` (${CACHE_SIZE}) |" >> $GITHUB_STEP_SUMMARY
           else
