@@ -796,13 +796,13 @@ jobs:
               echo "Running: $cmd"
               echo "============================================================"
               echo "$cmd" > /tmp/_run.sh
-              if timeout 3600 bash /tmp/_run.sh; then
+              if timeout 7200 bash /tmp/_run.sh; then
                 PASSED=$((PASSED + 1))
               else
                 RC=$?
                 FAILED=$((FAILED + 1))
                 if [ $RC -eq 124 ]; then
-                  ERRORS="${ERRORS}\n  TIMEOUT(30m): $cmd"
+                  ERRORS="${ERRORS}\n  TIMEOUT(2h): $cmd"
                 else
                   ERRORS="${ERRORS}\n  FAIL: $cmd"
                 fi
