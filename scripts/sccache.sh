@@ -89,10 +89,9 @@ cmd_stats() {
   echo ""
   echo "=== sccache compilation stats ==="
   if [ -n "${IMAGE_TAG}" ] && podman image exists "${IMAGE_TAG}" 2>/dev/null; then
-    podman run --rm "${IMAGE_TAG}" bash -c \
-      'source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build && sccache --show-stats 2>/dev/null' || true
+    podman run --rm "${IMAGE_TAG}" cat /sccache_stats.txt 2>/dev/null || echo "Stats not available"
   else
-    echo "Image not available for stats: ${IMAGE_TAG}"
+    echo "Image not available: ${IMAGE_TAG}"
   fi
 }
 
