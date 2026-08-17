@@ -382,7 +382,7 @@ jobs:
 
           PASSED=$(grep '^PASSED=' "$LOG" | tail -1 | cut -d= -f2)
           FAILED=$(grep '^FAILED=' "$LOG" | tail -1 | cut -d= -f2)
-          FAIL_LIST=$(grep '^  FAIL:' "$LOG" || true)
+          FAIL_LIST=$(grep '^\s*\(FAIL\|TIMEOUT\)' "$LOG" || true)
           echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
           {
@@ -515,7 +515,7 @@ jobs:
 
           PASSED=$(grep '^PASSED=' "$LOG" | tail -1 | cut -d= -f2)
           FAILED=$(grep '^FAILED=' "$LOG" | tail -1 | cut -d= -f2)
-          FAIL_LIST=$(grep '^  FAIL:' "$LOG" || true)
+          FAIL_LIST=$(grep '^\s*\(FAIL\|TIMEOUT\)' "$LOG" || true)
           echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
           {
@@ -663,7 +663,7 @@ jobs:
 
           PASSED=$(grep '^PASSED=' "$LOG" | tail -1 | cut -d= -f2)
           FAILED=$(grep '^FAILED=' "$LOG" | tail -1 | cut -d= -f2)
-          FAIL_LIST=$(grep '^  FAIL:' "$LOG" || true)
+          FAIL_LIST=$(grep '^\s*\(FAIL\|TIMEOUT\)' "$LOG" || true)
           echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
           {
@@ -819,7 +819,7 @@ jobs:
 
           PASSED=$(grep '^PASSED=' "$LOG" | tail -1 | cut -d= -f2)
           FAILED=$(grep '^FAILED=' "$LOG" | tail -1 | cut -d= -f2)
-          FAIL_LIST=$(grep '^  FAIL:' "$LOG" || true)
+          FAIL_LIST=$(grep '^\s*\(FAIL\|TIMEOUT\)' "$LOG" || true)
           echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
           {
