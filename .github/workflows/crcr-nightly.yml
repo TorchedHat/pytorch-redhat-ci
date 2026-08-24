@@ -302,6 +302,7 @@ jobs:
   cpu-tests:
     name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (cpu, linux.rhel96)"
     needs: [build, determine-tests]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.determine-tests.result == 'success' && (github.event_name == 'schedule' || inputs.test_categories == 'all' || inputs.test_categories == 'cpu') }}
     runs-on: linux.rhel96
     timeout-minutes: 1440
     env:
