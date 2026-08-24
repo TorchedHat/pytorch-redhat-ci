@@ -9,6 +9,18 @@ on:
         description: "pytorch/pytorch SHA to build against (leave empty for latest nightly)"
         required: false
         default: ""
+      test_categories:
+        description: "Which test stages to run after build"
+        required: false
+        type: choice
+        default: "all"
+        options:
+          - all
+          - cpu
+          - inductor
+          - sgpu
+          - mgpu
+          - build-only
 
 run-name: >-
   [Nightly] RHEL 9.6 @ ${{ github.event_name == 'schedule' && 'cron' || inputs.sha && 'manual-' || 'manual' }}${{ inputs.sha && format(' ({0})', inputs.sha) || '' }}
