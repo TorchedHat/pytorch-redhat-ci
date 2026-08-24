@@ -23,7 +23,7 @@ on:
           - build-only
 
 run-name: >-
-  [Nightly] RHEL 9.6 @ ${{ github.event_name == 'schedule' && 'cron' || inputs.sha && 'manual-' || 'manual' }}${{ inputs.sha && format(' ({0})', inputs.sha) || '' }}
+  [Nightly] RHEL 9.6 @ ${{ github.event_name == 'schedule' && 'cron' || inputs.sha && 'manual-' || 'manual' }}${{ inputs.sha && format(' ({0})', inputs.sha) || '' }}${{ inputs.test_categories && inputs.test_categories != 'all' && format(' [{0}]', inputs.test_categories) || '' }}
 
 env:
   UPSTREAM_REPO: pytorch/pytorch
