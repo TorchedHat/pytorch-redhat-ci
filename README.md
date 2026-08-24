@@ -27,9 +27,31 @@ pytorch/pytorch
 
 ### `crcr-nightly.yml` — Nightly RHEL 9.6 Build & Test (Active)
 
-Runs daily at 04:00 UTC via cron, or manually via `workflow_dispatch`.
+Runs daily at 08:30 UTC via cron, or manually via `workflow_dispatch`.
 
 **Pipeline: `build → determine-tests → cpu-tests → inductor-tests → sgpu-tests → mgpu-tests`** (sequential)
+
+#### Manual Dispatch
+
+The workflow can be triggered manually from the Actions tab with two optional inputs:
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `sha` | pytorch/pytorch SHA to build against (leave empty for latest nightly) | _(empty = latest nightly)_ |
+| `test_categories` | Which test stages to run after build | `all` |
+
+**Test category options:**
+
+| Selection | What runs |
+|-----------|-----------|
+| `all` | Build + all test stages (same as cron) |
+| `cpu` | Build + determine-tests + CPU tests only |
+| `inductor` | Build + determine-tests + inductor tests only |
+| `sgpu` | Build + determine-tests + single-GPU tests only |
+| `mgpu` | Build + determine-tests + multi-GPU tests only |
+| `build-only` | Build only, skip all tests |
+
+Cron-triggered runs always execute all stages regardless of these inputs. The run title displays the selected category (e.g., `[Nightly] RHEL 9.6 @ manual [sgpu]`).
 
 #### Build (`linux.rhel96`, 10h timeout)
 - Fetches the two most recent commits from `pytorch/pytorch`'s `nightly` branch
@@ -51,20 +73,20 @@ Runs daily at 04:00 UTC via cron, or manually via `workflow_dispatch`.
 - Outputs base64-encoded, categorized test lists (cpu, inductor, sgpu, mgpu)
 - Falls back to full test suite (from `test_config.py`) if delta produces no results
 
-#### Test Jobs (`linux.rhel96`, 24h job timeout, 30m per-command timeout)
+#### Test Jobs (`linux.rhel96`, 24h job timeout)
 
-| Job | Category | GPU Requirement | Runs After |
-|-----|----------|-----------------|------------|
-| `cpu-tests` | CPU-only PyTorch tests | None | `determine-tests` |
-| `inductor-tests` | TorchInductor + Dynamo + Export | None | `cpu-tests` |
-| `sgpu-tests` | Single-GPU tests | ≥ 1 GPU | `inductor-tests` |
-| `mgpu-tests` | Multi-GPU + distributed tests | ≥ 2 GPUs | `sgpu-tests` |
+| Job | Category | GPU Requirement | Per-command timeout | Runs After |
+|-----|----------|-----------------|---------------------|------------|
+| `cpu-tests` | CPU-only PyTorch tests | None | 2 hours | `determine-tests` |
+| `inductor-tests` | TorchInductor + Dynamo + Export | None | 2 hours | `cpu-tests` |
+| `sgpu-tests` | Single-GPU tests | ≥ 1 GPU | 2 hours | `inductor-tests` |
+| `mgpu-tests` | Multi-GPU + distributed tests | ≥ 2 GPUs | 12 hours | `sgpu-tests` |
 
 Each test job:
 - **Mounts the command list as a file** into the container (`-v /tmp/<job>_test_commands.txt:/tmp/test_commands.txt:ro`) — avoids shell quoting issues with `bash -c` argument passing
 - **Writes each command to `/tmp/_run.sh`** and executes via `bash /tmp/_run.sh` — preserves `-k` filter quoting (e.g., `-k "TestA or TestB"`) that would otherwise be mangled by nested `eval`
 - Uses **single-quoted `bash -c '...'`** for the outer podman shell — eliminates escape gymnastics
-- Wraps each command with `timeout 1800` (30 minutes) to prevent individual hangs from blocking the pipeline
+- Wraps each command with `timeout` to prevent individual hangs from blocking the pipeline (2 hours for cpu/inductor/sgpu, 12 hours for mgpu)
 - Runs with `CONTINUE_THROUGH_ERROR=True`, collecting pass/fail counts and printing a `:::SUMMARY:::` block
 - Streams output in real-time via `tee` (no buffering)
 - **Reports accurate job status**: a final "Fail job if tests failed" step checks the test step's `outcome` and exits with code 1 if there were failures, ensuring the job conclusion is `failure` despite `continue-on-error: true` on the test step
