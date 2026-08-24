@@ -166,6 +166,7 @@ jobs:
   determine-tests:
     name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / determine-tests"
     needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'schedule' || inputs.test_categories != 'build-only') }}
     runs-on: linux.rhel96
     timeout-minutes: 600
     outputs:
