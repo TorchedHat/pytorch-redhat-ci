@@ -137,6 +137,19 @@ Each job in the nightly pipeline sends a `completed` callback to the PyTorch CRC
 
 GPU test jobs only report to CRCR when GPUs are actually available on the runner — skipped tests are not reported, avoiding misleading `success` entries on HUD.
 
+### L2 Promotion Criteria
+
+This repo was promoted to L2 after meeting the following criteria from [RFC-0050](https://github.com/pytorch/rfcs/blob/main/RFC-0050-Cross-Repository-CI-Relay-for-PyTorch-Out-of-Tree-Backends.md):
+
+| Criterion | Status |
+|-----------|--------|
+| Nightly callback success rate ≥ 80% | Met |
+| Results visible on PyTorch HUD | Met |
+| Timeout rate < 1% | Met |
+| Active for ≥ 1 month | Met |
+
+L3 promotion (gating PRs) requires additional stability criteria including pass rate ≥ 95% and p50 end-to-end time within SLA.
+
 ## Test Determination
 
 The nightly workflow uses a dual-strategy approach for delta-based test selection:
