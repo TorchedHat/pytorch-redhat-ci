@@ -93,7 +93,20 @@ Each test job:
 
 ### `rhel96-build-test.yml` — PR Build & Sanity Tests (Disabled)
 
-Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disabled (`.disabled` suffix) while the nightly workflow is being stabilized. Will be re-enabled once nightly is promoted to L2+.
+Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disabled (`.disabled` suffix) while the nightly workflow is being stabilized. Will be re-enabled once nightly is promoted to L3+.
+
+### `results-relay-receiver.yml` — External CI Results Relay
+
+Receives CI results from external partners (e.g., `torch-spyre/torch-spyre`) via `repository_dispatch` (`external-ci-result` type). Partners authenticate to the RHEL Results Relay Lambda via OIDC and the Lambda dispatches results to this workflow.
+
+| Field | Source |
+|-------|--------|
+| `source_repo` | OIDC `repository` claim (verified by Lambda) |
+| `delivery_id` | Partner-provided pytorch/pytorch SHA |
+| `conclusion` | `success` / `failure` / `timed_out` |
+| `event_type` | `nightly` / `periodic` |
+
+HUD forwarding is controlled by the `PUSH_TO_HUD` env var (currently `false` during testing). When enabled, results are forwarded to the PyTorch CRCR relay via the callback action.
 
 **Build job:**
 - Checks out `pytorch/pytorch` at the dispatched SHA
