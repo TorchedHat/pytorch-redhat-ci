@@ -728,7 +728,7 @@ jobs:
           fi
 
       - name: Report to CRCR
-        if: always()
+        if: always() && steps.gpu_check.outputs.gpu_available == 'true'
         continue-on-error: true
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -884,7 +884,7 @@ jobs:
           fi
 
       - name: Report to CRCR
-        if: always()
+        if: always() && steps.gpu_check.outputs.mgpu_available == 'true'
         continue-on-error: true
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
