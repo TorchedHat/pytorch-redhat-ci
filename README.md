@@ -223,4 +223,6 @@ scripts/
 - [Callback Action](https://github.com/pytorch/test-infra/tree/main/.github/actions/cross-repo-ci-relay-callback)
 - [crcr-test (in-org health check repo)](https://github.com/pytorch/crcr-test)
 - [PyTorch HUD — CRCR Summary](https://hud.pytorch.org/crcr)
+- [PyTorch HUD — TorchedHat Results](https://hud.pytorch.org/crcr/TorchedHat/pytorch-redhat-ci)
+- [RFC-0050: Cross-Repository CI Relay](https://github.com/pytorch/rfcs/blob/main/RFC-0050-Cross-Repository-CI-Relay-for-PyTorch-Out-of-Tree-Backends.md)
 - [RFC-0056: CRCR Nightly & Periodic CI](https://github.com/pytorch/rfcs/pull/98)
