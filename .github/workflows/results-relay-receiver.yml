@@ -4,6 +4,12 @@ on:
   repository_dispatch:
     types: [external-ci-result]
 
+run-name: >-
+  [${{ github.event.client_payload.event_type || 'unknown' }}]
+  ${{ github.event.client_payload.source_repo || 'unknown-repo' }}
+  — ${{ github.event.client_payload.conclusion || '?' }}
+  (${{ github.event.client_payload.job_name || 'no job name' }})
+
 env:
   PUSH_TO_HUD: "false"
 
