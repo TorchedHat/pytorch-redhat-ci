@@ -106,19 +106,6 @@ Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disable
 - Model serialization round-trip
 - Core `test_torch.py` smoke tests
 
-### `results-relay-receiver.yml` — External CI Results Relay
-
-Receives CI results from external repositories (e.g., `torch-spyre/torch-spyre`) via `repository_dispatch` (`external-ci-result` type). Callers authenticate to the RHEL Results Relay Lambda via OIDC and the Lambda dispatches results to this workflow.
-
-| Field | Source |
-|-------|--------|
-| `source_repo` | OIDC `repository` claim (verified by Lambda) |
-| `delivery_id` | pytorch/pytorch SHA from caller |
-| `conclusion` | `success` / `failure` / `timed_out` |
-| `event_type` | `nightly` / `periodic` |
-
-HUD forwarding is controlled by the `PUSH_TO_HUD` env var (currently `false` during testing). When enabled, results are forwarded to the PyTorch CRCR relay via the callback action.
-
 ## CRCR Integration Level
 
 Currently at **L2** — nightly builds and tests run daily, with results reported back to the [PyTorch HUD](https://hud.pytorch.org/crcr/TorchedHat/pytorch-redhat-ci) via the CRCR callback action. Each pipeline stage (build, cpu, inductor, sgpu, mgpu) reports its conclusion individually, giving per-job visibility on the HUD dashboard.
