@@ -230,8 +230,8 @@ scripts/
 | `RHEL_SUBSCRIPTION_ORG_ID` | Build (Dockerfile) | RHEL org ID for subscription-manager |
 | `QUAY_USERNAME` | Build (push step) | Quay.io robot account or username |
 | `QUAY_PASSWORD` | Build (push step) | Quay.io password or token |
-| `RESULTS_RELAY_ENDPOINT` | results-relay-receiver | Lambda URL for HUD forwarding |
-| `DISPATCH_TOKEN` | results-relay-receiver | GitHub PAT for `repository_dispatch` (used by Lambda) |
+
+The Results Relay Lambda uses its own environment variables (`DISPATCH_TOKEN`, endpoint config) which are configured in the Lambda deployment, not as GitHub repo secrets.
 
 ## Related Resources
 
