@@ -185,7 +185,7 @@ To list critical tests for a category: `python scripts/test_config.py cpu --crit
 ```
 .github/workflows/
   crcr-nightly.yml              # Active nightly pipeline
-  results-relay-receiver.yml    # Receives external partner CI results
+  results-relay-receiver.yml    # Receives external CI results
   rhel96-build-test.yml.disabled # PR workflow (disabled)
 
 aws/lambda/results_relay/
