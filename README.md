@@ -93,7 +93,7 @@ Each test job:
 
 ### `rhel96-build-test.yml` — PR Build & Sanity Tests (Disabled)
 
-Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disabled (`.disabled` suffix) while the nightly workflow is being stabilized. Will be re-enabled once nightly is promoted to L3+.
+Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disabled (`.disabled` suffix) while the nightly workflow is being stabilized. Will be re-enabled once nightly results are consistently stable.
 
 ### `results-relay-receiver.yml` — External CI Results Relay
 
