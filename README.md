@@ -205,8 +205,6 @@ scripts/
 | `QUAY_USERNAME` | Build (push step) | Quay.io robot account or username |
 | `QUAY_PASSWORD` | Build (push step) | Quay.io password or token |
 
-The Results Relay Lambda uses its own environment variables (`DISPATCH_TOKEN`, endpoint config) which are configured in the Lambda deployment, not as GitHub repo secrets.
-
 ## Related Resources
 
 - [Quay.io Container Registry](https://quay.io/repository/aipcc/pytorch)
