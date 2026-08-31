@@ -174,7 +174,18 @@ To list critical tests for a category: `python scripts/test_config.py cpu --crit
 ```
 .github/workflows/
   crcr-nightly.yml              # Active nightly pipeline
+  results-relay-receiver.yml    # Receives external partner CI results
   rhel96-build-test.yml.disabled # PR workflow (disabled)
+
+aws/lambda/results_relay/
+  lambda_function.py            # OIDC validation + repository_dispatch to receiver
+  allowlist.py                  # YAML-based repo allowlist with TTL cache
+  config.py                     # Lambda configuration (audience, dispatch repo)
+  requirements.txt              # PyJWT, PyYAML, requests, cryptography
+  tests/                        # Unit tests for Lambda and allowlist
+
+config/
+  rhel_allowlist.yml            # Authorized repos for the Results Relay
 
 docker/
   Dockerfile.rhel9              # RHEL 9.6 UBI build image (conda, CUDA, PyTorch from source)
