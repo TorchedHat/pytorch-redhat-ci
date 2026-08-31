@@ -95,6 +95,17 @@ Each test job:
 
 Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disabled (`.disabled` suffix) while the nightly workflow is being stabilized. Will be re-enabled once nightly results are consistently stable.
 
+**Build job:**
+- Checks out `pytorch/pytorch` at the dispatched SHA
+- Builds PyTorch from source on RHEL
+
+**Sanity test job:**
+- `import torch` verification
+- Tensor ops and dtype checks
+- Autograd backward pass
+- Model serialization round-trip
+- Core `test_torch.py` smoke tests
+
 ### `results-relay-receiver.yml` — External CI Results Relay
 
 Receives CI results from external partners (e.g., `torch-spyre/torch-spyre`) via `repository_dispatch` (`external-ci-result` type). Partners authenticate to the RHEL Results Relay Lambda via OIDC and the Lambda dispatches results to this workflow.
@@ -107,17 +118,6 @@ Receives CI results from external partners (e.g., `torch-spyre/torch-spyre`) via
 | `event_type` | `nightly` / `periodic` |
 
 HUD forwarding is controlled by the `PUSH_TO_HUD` env var (currently `false` during testing). When enabled, results are forwarded to the PyTorch CRCR relay via the callback action.
-
-**Build job:**
-- Checks out `pytorch/pytorch` at the dispatched SHA
-- Builds PyTorch from source on RHEL
-
-**Sanity test job:**
-- `import torch` verification
-- Tensor ops and dtype checks
-- Autograd backward pass
-- Model serialization round-trip
-- Core `test_torch.py` smoke tests
 
 ## CRCR Integration Level
 
