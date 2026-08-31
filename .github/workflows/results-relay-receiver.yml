@@ -58,8 +58,28 @@ jobs:
           echo "| Status | \`${STATUS}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Conclusion | \`${CONCLUSION}\` |" >> $GITHUB_STEP_SUMMARY
 
+      - name: Validate required fields
+        id: validate
+        env:
+          DELIVERY_ID: ${{ github.event.client_payload.delivery_id }}
+          EVENT_TYPE: ${{ github.event.client_payload.event_type }}
+          JOB_NAME: ${{ github.event.client_payload.job_name }}
+          CONCLUSION: ${{ github.event.client_payload.conclusion }}
+        run: |
+          MISSING=""
+          [ -z "$DELIVERY_ID" ] && MISSING="${MISSING} delivery_id"
+          [ -z "$EVENT_TYPE" ] && MISSING="${MISSING} event_type"
+          [ -z "$JOB_NAME" ] && MISSING="${MISSING} job_name"
+          [ -z "$CONCLUSION" ] && MISSING="${MISSING} conclusion"
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing required fields:${MISSING}"
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "valid=true" >> "$GITHUB_OUTPUT"
+
       - name: Forward to CRCR/HUD
-        if: env.PUSH_TO_HUD == 'true'
+        if: env.PUSH_TO_HUD == 'true' && steps.validate.outputs.valid == 'true'
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
           status: completed
