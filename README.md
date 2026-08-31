@@ -226,3 +226,29 @@ scripts/
 - [PyTorch HUD — TorchedHat Results](https://hud.pytorch.org/crcr/TorchedHat/pytorch-redhat-ci)
 - [RFC-0050: Cross-Repository CI Relay](https://github.com/pytorch/rfcs/blob/main/RFC-0050-Cross-Repository-CI-Relay-for-PyTorch-Out-of-Tree-Backends.md)
 - [RFC-0056: CRCR Nightly & Periodic CI](https://github.com/pytorch/rfcs/pull/98)
+
+## Partner Onboarding (Results Relay)
+
+External partners can send their nightly CI results through the RHEL Results Relay. The flow is:
+
+```
+Partner repo (e.g., torch-spyre/torch-spyre)
+    │
+    ├─ Mint OIDC token (audience: "rhel-results-relay")
+    ├─ POST result payload to RHEL Results Relay Lambda
+    │     ↓
+    │   Lambda validates OIDC + allowlist
+    │     ↓
+    │   repository_dispatch → results-relay-receiver.yml
+    │     ↓
+    │   (optional) Forward to PyTorch CRCR relay → HUD
+    │
+    └─ Partner can also report directly to PyTorch CRCR relay
+```
+
+To onboard a new partner:
+
+1. Add their `owner/repo` to [`config/rhel_allowlist.yml`](config/rhel_allowlist.yml)
+2. Partner adds OIDC token minting + POST step to their nightly workflow
+3. Verify results appear in the receiver workflow's Actions tab
+4. Set `PUSH_TO_HUD: "true"` in `results-relay-receiver.yml` when ready for HUD visibility
