@@ -113,7 +113,7 @@ Receives CI results from external repositories (e.g., `torch-spyre/torch-spyre`)
 | Field | Source |
 |-------|--------|
 | `source_repo` | OIDC `repository` claim (verified by Lambda) |
-| `delivery_id` | Partner-provided pytorch/pytorch SHA |
+| `delivery_id` | pytorch/pytorch SHA from caller |
 | `conclusion` | `success` / `failure` / `timed_out` |
 | `event_type` | `nightly` / `periodic` |
 
