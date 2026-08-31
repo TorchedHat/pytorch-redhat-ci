@@ -108,7 +108,7 @@ Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disable
 
 ### `results-relay-receiver.yml` — External CI Results Relay
 
-Receives CI results from external partners (e.g., `torch-spyre/torch-spyre`) via `repository_dispatch` (`external-ci-result` type). Partners authenticate to the RHEL Results Relay Lambda via OIDC and the Lambda dispatches results to this workflow.
+Receives CI results from external repositories (e.g., `torch-spyre/torch-spyre`) via `repository_dispatch` (`external-ci-result` type). Callers authenticate to the RHEL Results Relay Lambda via OIDC and the Lambda dispatches results to this workflow.
 
 | Field | Source |
 |-------|--------|
