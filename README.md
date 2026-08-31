@@ -108,7 +108,7 @@ Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disable
 
 ## CRCR Integration Level
 
-Currently at **L1** — nightly builds and tests run, but results are not yet reported back to the [PyTorch HUD](https://hud.pytorch.org). Once the nightly workflow is stable, this will be promoted to L2+ with HUD callback reporting.
+Currently at **L2** — nightly builds and tests run daily, with results reported back to the [PyTorch HUD](https://hud.pytorch.org/crcr/TorchedHat/pytorch-redhat-ci) via the CRCR callback action. Each pipeline stage (build, cpu, inductor, sgpu, mgpu) reports its conclusion individually, giving per-job visibility on the HUD dashboard.
 
 ## Test Determination
 
