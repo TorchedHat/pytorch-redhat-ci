@@ -110,6 +110,20 @@ Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disable
 
 Currently at **L2** — nightly builds and tests run daily, with results reported back to the [PyTorch HUD](https://hud.pytorch.org/crcr/TorchedHat/pytorch-redhat-ci) via the CRCR callback action. Each pipeline stage (build, cpu, inductor, sgpu, mgpu) reports its conclusion individually, giving per-job visibility on the HUD dashboard.
 
+### HUD Reporting
+
+Each job in the nightly pipeline sends a `completed` callback to the PyTorch CRCR relay with `event-type: nightly` and `delivery-id` set to the resolved pytorch/pytorch source SHA. The following job names appear on HUD:
+
+| Job | HUD `job-name` |
+|-----|----------------|
+| build | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / build` |
+| cpu-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (cpu, linux.rhel96)` |
+| inductor-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)` |
+| sgpu-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96)` |
+| mgpu-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96)` |
+
+GPU test jobs only report to CRCR when GPUs are actually available on the runner — skipped tests are not reported, avoiding misleading `success` entries on HUD.
+
 ## Test Determination
 
 The nightly workflow uses a dual-strategy approach for delta-based test selection:
