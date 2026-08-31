@@ -202,18 +202,23 @@ scripts/
 
 1. The `linux.rhel96` self-hosted runner must be registered and online
 2. `podman` must be available on the runner for container-based builds
-3. **RHEL subscription secrets** must be configured in the repo:
-   - `RHEL_SUBSCRIPTION_ACTIVATION_KEY`
-   - `RHEL_SUBSCRIPTION_ORG_ID`
-4. **Quay.io registry secrets** must be configured for image pushing:
-   - `QUAY_USERNAME` — Quay.io robot account or username
-   - `QUAY_PASSWORD` — Quay.io password or token
-5. This repo must be on the [CRCR allowlist](https://github.com/pytorch/test-infra) to receive dispatches:
+3. This repo must be on the [CRCR allowlist](https://github.com/pytorch/test-infra) to receive dispatches:
    ```yaml
    L2:
      - TorchedHat/pytorch-redhat-ci
    ```
-6. For GPU test jobs, the runner must have NVIDIA GPUs with drivers installed
+4. For GPU test jobs, the runner must have NVIDIA GPUs with drivers installed
+
+### Secrets
+
+| Secret | Used By | Purpose |
+|--------|---------|---------|
+| `RHEL_SUBSCRIPTION_ACTIVATION_KEY` | Build (Dockerfile) | RHEL subscription for `dnf` access |
+| `RHEL_SUBSCRIPTION_ORG_ID` | Build (Dockerfile) | RHEL org ID for subscription-manager |
+| `QUAY_USERNAME` | Build (push step) | Quay.io robot account or username |
+| `QUAY_PASSWORD` | Build (push step) | Quay.io password or token |
+| `RESULTS_RELAY_ENDPOINT` | results-relay-receiver | Lambda URL for HUD forwarding |
+| `DISPATCH_TOKEN` | results-relay-receiver | GitHub PAT for `repository_dispatch` (used by Lambda) |
 
 ## Related Resources
 
