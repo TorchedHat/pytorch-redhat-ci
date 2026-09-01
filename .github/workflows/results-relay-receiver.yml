@@ -11,7 +11,7 @@ run-name: >-
   (${{ github.event.client_payload.job_name || 'no job name' }})
 
 env:
-  PUSH_TO_HUD: "false"
+  PUSH_TO_HUD: "true"
 
 permissions:
   contents: read
