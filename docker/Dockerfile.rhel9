@@ -86,6 +86,16 @@ RUN source /miniconda/etc/profile.d/conda.sh && \
     conda activate ${CONDA_ENV} && \
     conda install -y conda-forge::openmpi
 
+# Install sccache for compilation caching (PyTorch's CMake auto-detects it on PATH)
+RUN source /miniconda/etc/profile.d/conda.sh && \
+    conda activate ${CONDA_ENV} && \
+    conda install -y 'sccache==0.17.0'
+
+# sccache cache location — mounted as a volume from the host during podman build
+ENV SCCACHE_DIR=/sccache
+ENV SCCACHE_CACHE_SIZE=50G
+RUN mkdir -p /sccache && chmod 755 /sccache
+
 # Install CUDA, NCCL, cuSparseLt using upstream common scripts
 RUN mkdir -p /tmp/ci_commit_pins && \
     curl -fsSL https://raw.githubusercontent.com/pytorch/pytorch/main/.ci/docker/common/install_cuda.sh -o /tmp/install_cuda.sh && \
@@ -184,7 +194,8 @@ RUN source /miniconda/etc/profile.d/conda.sh && \
     pip install --index-url https://download.pytorch.org/whl/test/ triton && \
     echo "=== Triton installed successfully ===" && \
     export CMAKE_PREFIX_PATH="${CONDA_PREFIX:-'$(dirname $(which conda))/../'}:${CMAKE_PREFIX_PATH}" && \
-    .ci/pytorch/build.sh
+    .ci/pytorch/build.sh && \
+    sccache --show-stats > /sccache_stats.txt 2>&1 || true
 
 # Install structural analysis tool for test determination (cloned fresh
 # each build to pick up the latest changes from the private repo)
