@@ -122,7 +122,7 @@ Triggered only via `workflow_dispatch` while the `linux.rhel96-rocm` runner and 
 - Builds PyTorch from source with `USE_ROCM=1` / `USE_CUDA=0` via `docker/Dockerfile.rhel9-rocm`
 - Pushes to Quay with tag:
   ```
-  quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_rocm6_3
+  quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_rocm7_2
   ```
 
 #### ROCm Tests (`linux.rhel96-rocm`, 24h timeout)
