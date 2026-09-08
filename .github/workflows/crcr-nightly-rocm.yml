@@ -101,6 +101,7 @@ jobs:
             --build-arg ENABLE_SUBSCRIPTION=true \
             --build-arg RHEL_OS_VERSION=9.6 \
             --build-arg ROCM_VERSION="${ROCM_VERSION}" \
+            --build-arg PYTORCH_ROCM_ARCH="${PYTORCH_ROCM_ARCH:-gfx90a;gfx942}" \
             --secret id=subscription_key,src=/tmp/sub_key.txt \
             --secret id=subscription_org,src=/tmp/sub_org.txt \
             --tag "${IMAGE_TAG}" \
