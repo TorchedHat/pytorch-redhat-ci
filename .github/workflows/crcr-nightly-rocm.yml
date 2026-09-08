@@ -1,0 +1,35 @@
+name: "CRCR Nightly: RHEL 9.6 ROCm Build & Test"
+
+# Manual-only while the linux.rhel96-rocm runner and image are being validated.
+# Cron can be enabled once build/test are stable and HUD reporting is turned on.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "pytorch/pytorch SHA to build against (leave empty for latest nightly)"
+        required: false
+        default: ""
+      test_tier:
+        description: "Which ROCm tests to run after build"
+        required: false
+        type: choice
+        default: "sanity"
+        options:
+          - sanity
+          - critical
+          - build-only
+
+run-name: >-
+  [Nightly] RHEL 9.6 ROCm @ ${{ inputs.sha && format('manual ({0})', inputs.sha) || 'manual' }} [${{ inputs.test_tier }}]
+
+env:
+  UPSTREAM_REPO: pytorch/pytorch
+  NIGHTLY_BRANCH: nightly
+  QUAY_REGISTRY: quay.io/aipcc/pytorch
+  ROCM_VERSION: "6.3"
+  # Keep HUD/CRCR callbacks off until the ROCm pipeline is manually validated.
+  PUSH_TO_HUD: "false"
+
+permissions:
+  contents: read
+  id-token: write
