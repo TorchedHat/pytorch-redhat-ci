@@ -140,3 +140,22 @@ ENV PATH=/opt/rocm/bin:${PATH}
 ENV LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib64:${LD_LIBRARY_PATH}
 
 WORKDIR /pytorch
+
+# Optional GPU arch list for the runner's AMD GPUs (override at build time)
+ARG PYTORCH_ROCM_ARCH="gfx90a;gfx942"
+ENV PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH}
+
+# Install dependencies and build PyTorch with ROCm
+RUN source /miniconda/etc/profile.d/conda.sh && \
+    conda activate ${CONDA_ENV} && \
+    conda install -y -c conda-forge libstdcxx-ng && \
+    pip install -r .ci/docker/requirements-ci.txt && \
+    pip install --group dev && \
+    pip install mkl-static mkl-include && \
+    export CMAKE_PREFIX_PATH="${CONDA_PREFIX:-'$(dirname $(which conda))/../'}:${CMAKE_PREFIX_PATH}" && \
+    echo "Building with USE_ROCM=1 USE_CUDA=0 PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH}" && \
+    .ci/pytorch/build.sh
+
+# Set default conda environment for interactive use
+ENV CONDA_DEFAULT_ENV=${CONDA_ENV}
+RUN echo "conda activate ${CONDA_ENV}" >> ~/.bashrc
