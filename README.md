@@ -110,6 +110,7 @@ Triggered only via `workflow_dispatch` while the `linux.rhel96-rocm` runner and 
 |-------|-------------|---------|
 | `sha` | pytorch/pytorch SHA to build against (leave empty for latest nightly) | _(empty = latest nightly)_ |
 | `test_tier` | Which ROCm tests to run after build | `sanity` |
+| `no_cache` | Force `podman --no-cache` full rebuild (keep on until the ROCm image is validated) | `true` |
 
 | Selection | What runs |
 |-----------|-----------|
@@ -120,6 +121,8 @@ Triggered only via `workflow_dispatch` while the `linux.rhel96-rocm` runner and 
 #### ROCm Build (`linux.rhel96-rocm`, 10h timeout)
 - Resolves the source `main` SHA from `pytorch/pytorch` nightly (or uses the manual `sha` input)
 - Builds PyTorch from source with `USE_ROCM=1` / `USE_CUDA=0` via `docker/Dockerfile.rhel9-rocm`
+- Defaults to `--no-cache` so a green build is a real compile (set `no_cache=false` later for faster rebuilds)
+- Verifies the image can `import torch` with a non-empty `torch.version.hip` before push
 - Pushes to Quay with tag:
   ```
   quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_rocm7_2
@@ -128,6 +131,7 @@ Triggered only via `workflow_dispatch` while the `linux.rhel96-rocm` runner and 
 #### ROCm Tests (`linux.rhel96-rocm`, 24h timeout)
 - Checks for AMD GPU availability (`rocm-smi` or `/dev/kfd` + `/dev/dri`)
 - Runs selected sanity or critical commands inside the built image with `/dev/kfd` and `/dev/dri` device mounts
+- Bind-mounts the command list with SELinux `:Z,ro` and fails the job if commands resolve but none execute
 - **HUD/CRCR callbacks are disabled** (`PUSH_TO_HUD=false`) until the pipeline is manually validated
 
 ### `rhel96-build-test.yml` — PR Build & Sanity Tests (Disabled)
