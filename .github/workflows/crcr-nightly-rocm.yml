@@ -345,8 +345,7 @@ jobs:
           if [ "${EXPECTED}" -gt 0 ] && [ "${PASSED:-0}" = "0" ] && [ "${FAILED:-0}" = "0" ]; then
             echo "::error::Resolved ${EXPECTED} test command(s) but executed none (PASSED=0 FAILED=0). Check container mount/permissions."
             FAILED="${EXPECTED}"
-            FAIL_LIST="  INFRA: zero commands executed (likely mount/permission failure)
-${FAIL_LIST}"
+            FAIL_LIST="$(printf '  INFRA: zero commands executed (likely mount/permission failure)\n%s' "${FAIL_LIST}")"
           fi
 
           echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
