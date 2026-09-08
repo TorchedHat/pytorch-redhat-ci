@@ -27,6 +27,7 @@ env:
   NIGHTLY_BRANCH: nightly
   QUAY_REGISTRY: quay.io/aipcc/pytorch
   ROCM_VERSION: "6.3"
+  PYTORCH_ROCM_ARCH: "gfx90a;gfx942"
   # Keep HUD/CRCR callbacks off until the ROCm pipeline is manually validated.
   PUSH_TO_HUD: "false"
 
