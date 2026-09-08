@@ -80,6 +80,34 @@ RUN source /miniconda/etc/profile.d/conda.sh && \
     conda activate ${CONDA_ENV} && \
     conda install -y conda-forge::openmpi
 
+# Install ROCm from AMD RHEL9 repositories
+# Docs: https://rocm.docs.amd.com/projects/install-on-linux/
+RUN tee /etc/yum.repos.d/rocm.repo <<REPO
+[ROCm-${ROCM_VERSION}]
+name=ROCm${ROCM_VERSION}
+baseurl=https://repo.radeon.com/rocm/rhel9/${ROCM_VERSION}/main
+enabled=1
+priority=50
+gpgcheck=1
+gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
+REPO
+RUN dnf install -y \
+    rocm-dev \
+    rocm-libs \
+    rocm-utils \
+    rccl \
+    rocprofiler-dev \
+    roctracer-dev \
+    hip-devel \
+    hipblas-devel \
+    hipsparse-devel \
+    hipfft-devel \
+    rocblas-devel \
+    miopen-hip-devel \
+    amd-smi \
+    && dnf clean all \
+    && ln -sfn /opt/rocm-${ROCM_VERSION}* /opt/rocm || ln -sfn /opt/rocm /opt/rocm
+
 # Create libgomp.so linker symlink (UBI9 only ships libgomp.so.1)
 RUN ln -sf /usr/lib64/libgomp.so.1 /usr/lib64/libgomp.so
 
