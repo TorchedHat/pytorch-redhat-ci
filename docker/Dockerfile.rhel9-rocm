@@ -106,20 +106,33 @@ RUN source /miniconda/etc/profile.d/conda.sh && \
     conda activate ${CONDA_ENV} && \
     conda install -y conda-forge::openmpi
 
-# Install ROCm from AMD RHEL9 repositories
-# Package set mirrors upstream install_rocm.sh (Ubuntu apt) package list.
-# Repo layout: https://repo.radeon.com/rocm/rhel9/<version>/main
+# Install ROCm using AMD's official RHEL/EL9 repos (not rhel9/ which
+# ships el8-tagged RPMs that fail dependency resolution on UBI9).
+# Docs: package-manager-rhel for ROCm 7.2 — rocm/el9 + graphics/el/9.6
+ARG RHEL_GRAPHICS_VERSION=9.6
 RUN tee /etc/yum.repos.d/rocm.repo <<REPO
-[ROCm-${ROCM_VERSION}]
-name=ROCm${ROCM_VERSION}
-baseurl=https://repo.radeon.com/rocm/rhel9/${ROCM_VERSION}/main
+[rocm]
+name=ROCm ${ROCM_VERSION} repository
+baseurl=https://repo.radeon.com/rocm/el9/${ROCM_VERSION}/main
+enabled=1
+priority=50
+gpgcheck=1
+gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
+
+[amdgraphics]
+name=AMD Graphics ${ROCM_VERSION} repository
+baseurl=https://repo.radeon.com/graphics/${ROCM_VERSION}/el/${RHEL_GRAPHICS_VERSION}/main/x86_64/
 enabled=1
 priority=50
 gpgcheck=1
 gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
 REPO
-# Core set mirrors upstream install_rocm.sh apt packages.
-# amd-smi-lib is the Ubuntu/RHEL package name (not amd-smi).
+
+# rocm-opencl-devel needs ocl-icd-devel (CRB on RHEL9). Enable CRB when
+# available; otherwise pull the CentOS Stream CRB RPMs directly.
+RUN (dnf config-manager --set-enabled crb ||      dnf config-manager --set-enabled codeready-builder-for-rhel-9-x86_64-rpms ||      true) &&     if ! dnf install -y ocl-icd ocl-icd-devel; then       dnf install -y         https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/ocl-icd-2.2.13-4.el9.x86_64.rpm         https://mirror.stream.centos.org/9-stream/CRB/x86_64/os/Packages/ocl-icd-devel-2.2.13-4.el9.x86_64.rpm;     fi
+
+# Core set mirrors upstream install_rocm.sh apt packages / AMD "rocm" metapkg.
 RUN dnf install -y \
     rocm-dev \
     rocm-libs \
@@ -127,7 +140,7 @@ RUN dnf install -y \
     rccl \
     rocprofiler-dev \
     roctracer-dev \
-    && (dnf install -y amd-smi-lib || dnf install -y amd-smi || true) \
+    && (dnf install -y amd-smi-lib || true) \
     && (dnf install -y rocm-llvm-dev || true) \
     && dnf clean all \
     && if [ ! -e /opt/rocm ]; then \
