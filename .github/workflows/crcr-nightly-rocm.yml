@@ -33,3 +33,112 @@ env:
 permissions:
   contents: read
   id-token: write
+
+jobs:
+  rocm-build:
+    name: "linux-rhel9.6-rocm6.3-py3.12-gcc11-x86_64 / build"
+    runs-on: linux.rhel96-rocm
+    timeout-minutes: 600
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+      image_tag: ${{ steps.sha.outputs.image_tag }}
+      quay_tag: ${{ steps.sha.outputs.quay_tag }}
+    steps:
+      - name: Checkout CI repo
+        uses: actions/checkout@v4
+
+      - name: Fetch source SHA from nightly branch
+        id: sha
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          if [ -n "$INPUT_SHA" ]; then
+            echo "Using manually provided SHA: $INPUT_SHA"
+            SOURCE_SHA="$INPUT_SHA"
+          else
+            NIGHTLY_SHA=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/commits?sha=${NIGHTLY_BRANCH}&per_page=1" | jq -r '.[0].sha')
+            if [ -z "$NIGHTLY_SHA" ] || [ "$NIGHTLY_SHA" = "null" ]; then
+              echo "::error::Could not resolve HEAD for ${UPSTREAM_REPO}/${NIGHTLY_BRANCH}"
+              exit 1
+            fi
+            COMMIT_MSG=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/commits/${NIGHTLY_SHA}" | jq -r '.commit.message')
+            SOURCE_SHA=$(echo "$COMMIT_MSG" | grep -oP '\(([a-f0-9]{40})\)' | tr -d '()' | head -1)
+            if [ -z "$SOURCE_SHA" ]; then
+              echo "::error::Could not extract source SHA from nightly commit ${NIGHTLY_SHA}"
+              exit 1
+            fi
+          fi
+
+          SHORT_SHA=${SOURCE_SHA:0:7}
+          QUAY_TAG="${QUAY_REGISTRY}:rhel9_6_pytorch_nightly_main_git${SHORT_SHA}_rocm${ROCM_VERSION//./_}"
+
+          echo "Source main SHA: $SOURCE_SHA"
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "image_tag=rhel9-pytorch-rocm-nightly:${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "quay_tag=$QUAY_TAG" >> "$GITHUB_OUTPUT"
+          echo "Quay tag: $QUAY_TAG"
+
+      - name: Log in to Quay.io
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+        run: |
+          echo "$QUAY_PASSWORD" | podman login quay.io -u "$QUAY_USERNAME" --password-stdin
+
+      - name: Build ROCm container image
+        env:
+          IMAGE_TAG: ${{ steps.sha.outputs.image_tag }}
+          PYTORCH_SHA: ${{ steps.sha.outputs.sha }}
+          SUBSCRIPTION_KEY: ${{ secrets.RHEL_SUBSCRIPTION_ACTIVATION_KEY }}
+          SUBSCRIPTION_ORG: ${{ secrets.RHEL_SUBSCRIPTION_ORG_ID }}
+        run: |
+          echo "$SUBSCRIPTION_KEY" > /tmp/sub_key.txt
+          echo "$SUBSCRIPTION_ORG" > /tmp/sub_org.txt
+
+          podman build \
+            --file docker/Dockerfile.rhel9-rocm \
+            --build-arg COMMIT_HASH="${PYTORCH_SHA}" \
+            --build-arg ENABLE_SUBSCRIPTION=true \
+            --build-arg RHEL_OS_VERSION=9.6 \
+            --build-arg ROCM_VERSION="${ROCM_VERSION}" \
+            --secret id=subscription_key,src=/tmp/sub_key.txt \
+            --secret id=subscription_org,src=/tmp/sub_org.txt \
+            --tag "${IMAGE_TAG}" \
+            .
+
+          rm -f /tmp/sub_key.txt /tmp/sub_org.txt
+
+      - name: Tag and push to Quay.io
+        env:
+          IMAGE_TAG: ${{ steps.sha.outputs.image_tag }}
+          QUAY_TAG: ${{ steps.sha.outputs.quay_tag }}
+        run: |
+          podman tag "${IMAGE_TAG}" "${QUAY_TAG}"
+          podman push "${QUAY_TAG}"
+          echo "Pushed: ${QUAY_TAG}"
+
+      - name: Build summary
+        env:
+          IMAGE_TAG: ${{ steps.sha.outputs.image_tag }}
+          QUAY_TAG: ${{ steps.sha.outputs.quay_tag }}
+          PYTORCH_SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          echo "## CRCR Nightly: RHEL 9.6 ROCm — Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Local Image | \`${IMAGE_TAG}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Quay Image | \`${QUAY_TAG}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| HUD push | \`${PUSH_TO_HUD}\` |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Report to CRCR
+        if: always() && env.PUSH_TO_HUD == 'true'
+        continue-on-error: true
+        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
+        with:
+          status: completed
+          conclusion: ${{ job.status }}
+          delivery-id: ${{ steps.sha.outputs.sha }}
+          event-type: nightly
+          job-name: "linux-rhel9.6-rocm6.3-py3.12-gcc11-x86_64 / build"
