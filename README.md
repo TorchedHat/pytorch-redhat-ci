@@ -9,12 +9,18 @@ pytorch/pytorch
   │
   ├─ PR events ──▶ repository_dispatch (via CRCR) ──▶ rhel96-build-test.yml [disabled]
   │
-  └─ nightly branch ──▶ cron schedule ──▶ crcr-nightly.yml [active]
+  ├─ nightly branch ──▶ cron schedule ──▶ crcr-nightly.yml [active, CUDA]
+  │                                           │
+  │                                           ├─ Extracts source main SHA from nightly commit
+  │                                           ├─ Builds PyTorch in RHEL 9.6 CUDA container
+  │                                           ├─ Runs delta-based test determination
+  │                                           └─ Executes categorized tests (cpu, inductor, sgpu, mgpu)
+  │
+  └─ nightly SHA ──▶ workflow_dispatch ──▶ crcr-nightly-rocm.yml [manual, ROCm]
                                               │
-                                              ├─ Extracts source main SHA from nightly commit
-                                              ├─ Builds PyTorch in RHEL 9.6 container (podman)
-                                              ├─ Runs delta-based test determination
-                                              └─ Executes categorized tests (cpu, inductor, sgpu, mgpu)
+                                              ├─ Builds PyTorch in RHEL 9.6 ROCm container
+                                              ├─ Runs sanity or critical ROCm tests
+                                              └─ HUD/CRCR callbacks currently disabled (PUSH_TO_HUD=false)
 ```
 
 ## Platforms
