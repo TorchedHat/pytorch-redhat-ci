@@ -19,9 +19,10 @@ pytorch/pytorch
 
 ## Platforms
 
-| Runner | OS | Status |
-|--------|-----|--------|
-| `linux.rhel96` | RHEL 9.6 | Active |
+| Runner | OS | Accelerator | Status |
+|--------|-----|-------------|--------|
+| `linux.rhel96` | RHEL 9.6 | CUDA | Active |
+| `linux.rhel96-rocm` | RHEL 9.6 | ROCm | Active (manual validation) |
 
 ## Workflows
 
