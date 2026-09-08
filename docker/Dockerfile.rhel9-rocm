@@ -64,3 +64,51 @@ RUN dnf install -y --allowerasing \
     xz \
     bzip2 && \
     dnf clean all
+
+# Install miniconda
+RUN wget --no-check-certificate https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${OS_TYPE}.sh && \
+    bash Miniforge3-Linux-${OS_TYPE}.sh -p /miniconda -b && \
+    rm Miniforge3-Linux-${OS_TYPE}.sh && \
+    /miniconda/bin/conda update -y conda && \
+    /miniconda/bin/conda init && \
+    /miniconda/bin/conda create -n ${CONDA_ENV} python=${PY_VER} pip -y
+
+ENV PATH=/miniconda/bin:${PATH}
+
+# Install OpenMPI via conda (UBI9 repos don't ship openmpi-devel)
+RUN source /miniconda/etc/profile.d/conda.sh && \
+    conda activate ${CONDA_ENV} && \
+    conda install -y conda-forge::openmpi
+
+# Create libgomp.so linker symlink (UBI9 only ships libgomp.so.1)
+RUN ln -sf /usr/lib64/libgomp.so.1 /usr/lib64/libgomp.so
+
+# Clone PyTorch and checkout specific commit/branch if required
+RUN git clone ${PYTORCH_REPO} /pytorch && \
+    cd /pytorch && \
+    git checkout ${PYT_BRANCH} && \
+    if [ -n "${COMMIT_HASH}" ]; then \
+        echo "Checking out specific commit: ${COMMIT_HASH}" && \
+        git checkout ${COMMIT_HASH}; \
+    fi && \
+    git submodule sync && \
+    git submodule update --init --recursive
+
+ENV OpenBLAS_HOME=/usr/lib64:{OpenBLAS_HOME}
+ENV MAX_JOBS=56
+ENV CMAKE_LINKER="lld"
+ENV LDFLAGS="-fuse-ld=lld"
+ENV CMAKE_EXPORT_COMPILE_COMMANDS=ON
+ENV CFLAGS="-mf16c -mavx2"
+ENV CXXFLAGS="-mf16c -mavx2"
+ENV USE_MPI=1
+ENV USE_SYSTEM_MPI=1
+
+# ROCm build flags — CUDA is explicitly disabled
+ENV USE_CUDA=0
+ENV USE_ROCM=1
+ENV ROCM_HOME=/opt/rocm
+ENV PATH=/opt/rocm/bin:${PATH}
+ENV LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib64:${LD_LIBRARY_PATH}
+
+WORKDIR /pytorch
