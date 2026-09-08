@@ -210,11 +210,13 @@ To list critical tests for a category: `python scripts/test_config.py cpu --crit
 
 ```
 .github/workflows/
-  crcr-nightly.yml              # Active nightly pipeline
+  crcr-nightly.yml              # Active CUDA nightly pipeline
+  crcr-nightly-rocm.yml         # Manual ROCm build/test (HUD disabled)
   rhel96-build-test.yml.disabled # PR workflow (disabled)
 
 docker/
   Dockerfile.rhel9              # RHEL 9.6 UBI build image (conda, CUDA, PyTorch from source)
+  Dockerfile.rhel9-rocm         # RHEL 9.6 UBI build image (conda, ROCm, PyTorch from source)
 
 scripts/
   merge_test_results.py         # Unified test merger (heuristic + structural)
