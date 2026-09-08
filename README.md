@@ -98,6 +98,38 @@ Each test job:
 - Streams output in real-time via `tee` (no buffering)
 - **Reports accurate job status**: a final "Fail job if tests failed" step checks the test step's `outcome` and exits with code 1 if there were failures, ensuring the job conclusion is `failure` despite `continue-on-error: true` on the test step
 
+### `crcr-nightly-rocm.yml` — RHEL 9.6 ROCm Build & Test (Manual)
+
+Triggered only via `workflow_dispatch` while the `linux.rhel96-rocm` runner and image are being validated. Cron and HUD reporting will be enabled after manual soak.
+
+**Pipeline: `rocm-build → rocm-tests`**
+
+#### Manual Dispatch
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `sha` | pytorch/pytorch SHA to build against (leave empty for latest nightly) | _(empty = latest nightly)_ |
+| `test_tier` | Which ROCm tests to run after build | `sanity` |
+
+| Selection | What runs |
+|-----------|-----------|
+| `sanity` | Build + ROCm import/HIP smoke + light `test_torch` / `test_cuda` filters |
+| `critical` | Build + sgpu-style critical GPU suite on ROCm |
+| `build-only` | Build only, skip tests |
+
+#### ROCm Build (`linux.rhel96-rocm`, 10h timeout)
+- Resolves the source `main` SHA from `pytorch/pytorch` nightly (or uses the manual `sha` input)
+- Builds PyTorch from source with `USE_ROCM=1` / `USE_CUDA=0` via `docker/Dockerfile.rhel9-rocm`
+- Pushes to Quay with tag:
+  ```
+  quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_rocm6_3
+  ```
+
+#### ROCm Tests (`linux.rhel96-rocm`, 24h timeout)
+- Checks for AMD GPU availability (`rocm-smi` or `/dev/kfd` + `/dev/dri`)
+- Runs selected sanity or critical commands inside the built image with `/dev/kfd` and `/dev/dri` device mounts
+- **HUD/CRCR callbacks are disabled** (`PUSH_TO_HUD=false`) until the pipeline is manually validated
+
 ### `rhel96-build-test.yml` — PR Build & Sanity Tests (Disabled)
 
 Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disabled (`.disabled` suffix) while the nightly workflow is being stabilized. Will be re-enabled once nightly results are consistently stable.
