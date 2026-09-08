@@ -106,7 +106,10 @@ RUN dnf install -y \
     miopen-hip-devel \
     amd-smi \
     && dnf clean all \
-    && ln -sfn /opt/rocm-${ROCM_VERSION}* /opt/rocm || ln -sfn /opt/rocm /opt/rocm
+    && if [ ! -e /opt/rocm ]; then \
+         ROCM_DIR=$(ls -d /opt/rocm-* 2>/dev/null | head -1); \
+         if [ -n "${ROCM_DIR}" ]; then ln -sfn "${ROCM_DIR}" /opt/rocm; fi; \
+       fi
 
 # Create libgomp.so linker symlink (UBI9 only ships libgomp.so.1)
 RUN ln -sf /usr/lib64/libgomp.so.1 /usr/lib64/libgomp.so
