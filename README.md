@@ -163,6 +163,8 @@ Each job in the nightly pipeline sends a `completed` callback to the PyTorch CRC
 
 GPU test jobs only report to CRCR when GPUs are actually available on the runner — skipped tests are not reported, avoiding misleading `success` entries on HUD.
 
+ROCm jobs (`rocm-build`, `rocm-tests`) intentionally do **not** report to HUD yet: `PUSH_TO_HUD=false` in `crcr-nightly-rocm.yml`. Flip that flag once the ROCm pipeline has been manually validated.
+
 ### L2 Promotion Criteria
 
 This repo was promoted to L2 after meeting the following criteria from [RFC-0050](https://github.com/pytorch/rfcs/blob/main/RFC-0050-Cross-Repository-CI-Relay-for-PyTorch-Out-of-Tree-Backends.md):
@@ -228,7 +230,7 @@ scripts/
 
 ## Prerequisites
 
-1. The `linux.rhel96` self-hosted runner must be registered and online
+1. The `linux.rhel96` (CUDA) and/or `linux.rhel96-rocm` (ROCm) self-hosted runners must be registered and online
 2. `podman` must be available on the runner for container-based builds
 3. This repo must be on the [CRCR allowlist](https://github.com/pytorch/test-infra) to receive dispatches:
    ```yaml
