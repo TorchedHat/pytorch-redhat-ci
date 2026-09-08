@@ -159,3 +159,10 @@ RUN source /miniconda/etc/profile.d/conda.sh && \
 # Set default conda environment for interactive use
 ENV CONDA_DEFAULT_ENV=${CONDA_ENV}
 RUN echo "conda activate ${CONDA_ENV}" >> ~/.bashrc
+
+# Unregister subscription (uses secret mount so creds don't leak)
+RUN --mount=type=secret,id=subscription_key \
+    if [ "${ENABLE_SUBSCRIPTION}" = "true" ] && [ -f /run/secrets/subscription_key ]; then \
+        subscription-manager unregister || true && \
+        subscription-manager clean || true; \
+    fi
