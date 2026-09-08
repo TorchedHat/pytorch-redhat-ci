@@ -26,7 +26,7 @@ env:
   UPSTREAM_REPO: pytorch/pytorch
   NIGHTLY_BRANCH: nightly
   QUAY_REGISTRY: quay.io/aipcc/pytorch
-  ROCM_VERSION: "7.2"
+  ROCM_VERSION: "7.14"
   PYTORCH_ROCM_ARCH: "gfx90a;gfx942;gfx950;gfx1100"
   # Keep HUD/CRCR callbacks off until the ROCm pipeline is manually validated.
   PUSH_TO_HUD: "false"
@@ -37,7 +37,7 @@ permissions:
 
 jobs:
   rocm-build:
-    name: "linux-rhel9.6-rocm7.2-py3.12-gcc11-x86_64 / build"
+    name: "linux-rhel9.6-rocm7.14-py3.12-gcc11-x86_64 / build"
     runs-on: linux.rhel96-rocm
     timeout-minutes: 600
     outputs:
@@ -178,10 +178,10 @@ jobs:
           conclusion: ${{ job.status }}
           delivery-id: ${{ steps.sha.outputs.sha }}
           event-type: nightly
-          job-name: "linux-rhel9.6-rocm7.2-py3.12-gcc11-x86_64 / build"
+          job-name: "linux-rhel9.6-rocm7.14-py3.12-gcc11-x86_64 / build"
 
   rocm-tests:
-    name: "linux-rhel9.6-rocm7.2-py3.12-gcc11-x86_64 / test (rocm, linux.rhel96-rocm)"
+    name: "linux-rhel9.6-rocm7.14-py3.12-gcc11-x86_64 / test (rocm, linux.rhel96-rocm)"
     needs: rocm-build
     if: ${{ !cancelled() && needs.rocm-build.result == 'success' && inputs.test_tier != 'build-only' }}
     runs-on: linux.rhel96-rocm
@@ -240,11 +240,12 @@ jobs:
           CMDS
           )
           else
-            # Sanity smoke tests for first-pass ROCm validation
+            # Sanity matches CUDA PR/nightly quick gate (import, dtype,
+            # autograd, serialization, light test_torch), plus HIP device
+            # smoke so the ROCm runtime is actually exercised.
             COMMANDS=$(cat <<'CMDS'
-          python -c "import torch; print(torch.__version__); print('hip:', torch.version.hip); print('available:', torch.cuda.is_available()); x=torch.randn(8,8,device='cuda'); print((x@x.T).sum().item())"
-          python test/run_test.py -i test_torch -k test_basic
-          python test/run_test.py -i test_cuda -k test_cudart_version or test_cuda_get_device_properties or test_streams
+          python -c "import torch, tempfile, os; print(f'PyTorch {torch.__version__} hip={torch.version.hip}'); assert torch.cuda.is_available(), 'HIP/ROCm device not available'; z = torch.randn(64, 64) @ torch.randn(64, 64); assert z.shape == (64, 64); [torch.ones(8, dtype=dt) for dt in (torch.float32, torch.float64, torch.int32, torch.int64, torch.bfloat16)]; x = torch.randn(10, requires_grad=True); ((x ** 2).sum()).backward(); assert x.grad is not None and x.grad.shape == x.shape; m = torch.nn.Linear(16, 4); f = tempfile.NamedTemporaryFile(suffix='.pt', delete=False); torch.save(m.state_dict(), f.name); torch.nn.Linear(16, 4).load_state_dict(torch.load(f.name, weights_only=True)); os.unlink(f.name); g = torch.randn(8, 8, device='cuda'); print((g @ g.T).sum().item()); print('ROCm sanity gate passed')"
+          python -m pytest test/test_torch.py -x -q --timeout=120 -k "test_dir or test_type or test_dtypes"
           CMDS
           )
           fi
@@ -379,4 +380,4 @@ jobs:
           conclusion: ${{ steps.conclusion.outputs.value }}
           delivery-id: ${{ needs.rocm-build.outputs.sha }}
           event-type: nightly
-          job-name: "linux-rhel9.6-rocm7.2-py3.12-gcc11-x86_64 / test (rocm, linux.rhel96-rocm)"
+          job-name: "linux-rhel9.6-rocm7.14-py3.12-gcc11-x86_64 / test (rocm, linux.rhel96-rocm)"

@@ -17,8 +17,8 @@ ARG PY_VER=3.12
 ARG CONDA_VER=latest
 ARG CONDA_ENV="rocm_torch_build"
 ARG ENABLE_SUBSCRIPTION=false
-# Match current upstream jammy-rocm default in .ci/docker/build.sh
-ARG ROCM_VERSION=7.2
+# Target ROCm 7.14 for linux.rhel96-rocm (requested platform pin)
+ARG ROCM_VERSION=7.14
 ARG PYTORCH_ROCM_ARCH="gfx90a;gfx942;gfx950;gfx1100"
 
 # Register via BuildKit secrets when allowed. On subscribed RHEL hosts,

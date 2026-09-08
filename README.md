@@ -113,7 +113,7 @@ Triggered only via `workflow_dispatch` while the `linux.rhel96-rocm` runner and 
 
 | Selection | What runs |
 |-----------|-----------|
-| `sanity` | Build + ROCm import/HIP smoke + light `test_torch` / `test_cuda` filters |
+| `sanity` | Build + same CUDA sanity gate (import/dtype/autograd/serialization + light `test_torch`) plus HIP device smoke |
 | `critical` | Build + sgpu-style critical GPU suite on ROCm |
 | `build-only` | Build only, skip tests |
 
@@ -122,7 +122,7 @@ Triggered only via `workflow_dispatch` while the `linux.rhel96-rocm` runner and 
 - Builds PyTorch from source with `USE_ROCM=1` / `USE_CUDA=0` via `docker/Dockerfile.rhel9-rocm`
 - Pushes to Quay with tag:
   ```
-  quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_rocm7_2
+  quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_rocm7_14
   ```
 
 #### ROCm Tests (`linux.rhel96-rocm`, 24h timeout)
