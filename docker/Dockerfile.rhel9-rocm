@@ -227,6 +227,10 @@ ENV PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH}
 # Set working directory
 WORKDIR /pytorch
 
+# BUILD_ENVIRONMENT must contain "rocm" so .ci/pytorch/build.sh hipifies
+# sources (tools/amd_build/build_amd.py) and disables WERROR for ROCm.
+ENV BUILD_ENVIRONMENT=linux-rhel9.6-rocm-py3.12
+
 # Install dependencies and build PyTorch (same entrypoint as CUDA image)
 RUN source /miniconda/etc/profile.d/conda.sh && \
     conda activate ${CONDA_ENV} && \
@@ -235,7 +239,7 @@ RUN source /miniconda/etc/profile.d/conda.sh && \
     pip install --group dev && \
     pip install mkl-static mkl-include && \
     export CMAKE_PREFIX_PATH="${CONDA_PREFIX:-'$(dirname $(which conda))/../'}:${CMAKE_PREFIX_PATH}" && \
-    echo "Building with USE_ROCM=1 USE_CUDA=0 ROCM_VERSION=${ROCM_VERSION} PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH}" && \
+    echo "Building with BUILD_ENVIRONMENT=${BUILD_ENVIRONMENT} USE_ROCM=1 USE_CUDA=0 ROCM_VERSION=${ROCM_VERSION} PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH}" && \
     .ci/pytorch/build.sh
 
 # Set default conda environment for interactive use
