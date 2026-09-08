@@ -118,6 +118,8 @@ priority=50
 gpgcheck=1
 gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
 REPO
+# Core set mirrors upstream install_rocm.sh apt packages.
+# amd-smi-lib is the Ubuntu/RHEL package name (not amd-smi).
 RUN dnf install -y \
     rocm-dev \
     rocm-libs \
@@ -125,7 +127,7 @@ RUN dnf install -y \
     rccl \
     rocprofiler-dev \
     roctracer-dev \
-    amd-smi \
+    && (dnf install -y amd-smi-lib || dnf install -y amd-smi || true) \
     && (dnf install -y rocm-llvm-dev || true) \
     && dnf clean all \
     && if [ ! -e /opt/rocm ]; then \
