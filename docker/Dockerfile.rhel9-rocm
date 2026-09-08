@@ -1,0 +1,66 @@
+#GLOBAL ARGS
+ARG RHEL_OS_VERSION=9.6
+
+# BASE IMAGE
+FROM docker.io/redhat/ubi9:${RHEL_OS_VERSION}
+
+# BUILD ARGS
+ARG PYTORCH_REPO=https://github.com/pytorch/pytorch
+ARG PYT_BRANCH=main
+ARG COMMIT_HASH=""
+ARG OS_TYPE=x86_64
+ARG PY_VER=3.12
+ARG CONDA_VER=latest
+ARG CONDA_ENV="rocm_torch_build"
+ARG ENABLE_SUBSCRIPTION=false
+ARG ROCM_VERSION=6.3
+
+# Register the system using BuildKit secret mount — credentials never
+# appear in build args, image layers, or docker history.
+RUN --mount=type=secret,id=subscription_key \
+    --mount=type=secret,id=subscription_org \
+    if [ "${ENABLE_SUBSCRIPTION}" = "true" ]; then \
+        ACTIVATION_KEY=$(cat /run/secrets/subscription_key 2>/dev/null) && \
+        ORG_ID=$(cat /run/secrets/subscription_org 2>/dev/null) && \
+        if [ -z "${ACTIVATION_KEY}" ] || [ -z "${ORG_ID}" ]; then \
+            echo "ERROR: subscription secrets not provided" && exit 1; \
+        fi && \
+        subscription-manager register \
+            --activationkey="${ACTIVATION_KEY}" \
+            --org="${ORG_ID}" && \
+        unset ACTIVATION_KEY ORG_ID; \
+    fi
+
+# Add EPEL repo for jemalloc
+RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+
+# Install system packages required for a PyTorch ROCm source build
+RUN dnf install -y --allowerasing \
+    wget \
+    jq \
+    vim \
+    git \
+    gdb \
+    unzip \
+    which \
+    libffi-devel \
+    openssl-devel \
+    gcc \
+    gcc-c++ \
+    make \
+    cmake \
+    ninja-build \
+    lld \
+    openblas \
+    openblas-devel \
+    environment-modules \
+    findutils \
+    curl \
+    sudo \
+    perl \
+    zlib-devel \
+    gcc-gfortran \
+    jemalloc \
+    xz \
+    bzip2 && \
+    dnf clean all
