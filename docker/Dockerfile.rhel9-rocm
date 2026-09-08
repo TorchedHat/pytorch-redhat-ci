@@ -5,6 +5,10 @@ ARG RHEL_OS_VERSION=9.6
 FROM docker.io/redhat/ubi9:${RHEL_OS_VERSION}
 
 # BUILD ARGS
+# Structure mirrors docker/Dockerfile.rhel9 (CUDA). ROCm toolchain install
+# mirrors pytorch/pytorch .ci/docker/ubuntu-rocm + common/install_rocm.sh
+# package/env set, but uses AMD RHEL9 yum repos because install_rocm.sh is
+# Ubuntu/apt-only today.
 ARG PYTORCH_REPO=https://github.com/pytorch/pytorch
 ARG PYT_BRANCH=main
 ARG COMMIT_HASH=""
@@ -13,10 +17,13 @@ ARG PY_VER=3.12
 ARG CONDA_VER=latest
 ARG CONDA_ENV="rocm_torch_build"
 ARG ENABLE_SUBSCRIPTION=false
-ARG ROCM_VERSION=6.3
+# Match current upstream jammy-rocm default in .ci/docker/build.sh
+ARG ROCM_VERSION=7.2
+ARG PYTORCH_ROCM_ARCH="gfx90a;gfx942;gfx950;gfx1100"
 
-# Register the system using BuildKit secret mount — credentials never
-# appear in build args, image layers, or docker history.
+# Register via BuildKit secrets when allowed. On subscribed RHEL hosts,
+# podman often forces "container mode" (exit 78); fall back to host
+# entitlements mounted into the build instead of failing hard.
 RUN --mount=type=secret,id=subscription_key \
     --mount=type=secret,id=subscription_org \
     if [ "${ENABLE_SUBSCRIPTION}" = "true" ]; then \
@@ -25,16 +32,28 @@ RUN --mount=type=secret,id=subscription_key \
         if [ -z "${ACTIVATION_KEY}" ] || [ -z "${ORG_ID}" ]; then \
             echo "ERROR: subscription secrets not provided" && exit 1; \
         fi && \
-        subscription-manager register \
+        export SMDEV_CONTAINER_OFF=1 && \
+        if subscription-manager register \
             --activationkey="${ACTIVATION_KEY}" \
-            --org="${ORG_ID}" && \
+            --org="${ORG_ID}"; then \
+            echo "Registered with subscription-manager"; \
+        else \
+            rc=$?; \
+            echo "WARNING: subscription-manager register failed (rc=${rc})"; \
+            if ls /etc/pki/entitlement/*.pem >/dev/null 2>&1 || \
+               ls /run/secrets/etc-pki-entitlement/* >/dev/null 2>&1; then \
+                echo "Continuing with host-provided entitlements"; \
+            else \
+                echo "ERROR: no usable RHEL entitlements available" && exit "${rc}"; \
+            fi; \
+        fi && \
         unset ACTIVATION_KEY ORG_ID; \
     fi
 
 # Add EPEL repo for jemalloc
 RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
 
-# Install system packages required for a PyTorch ROCm source build
+# Install all system packages after subscription registration
 RUN dnf install -y --allowerasing \
     wget \
     jq \
@@ -62,17 +81,24 @@ RUN dnf install -y --allowerasing \
     gcc-gfortran \
     jemalloc \
     xz \
-    bzip2 && \
-    dnf clean all
+    bzip2 \
+    libdrm-devel \
+    sqlite \
+    && dnf clean all
 
-# Install miniconda
+# Install miniconda after system packages are installed
 RUN wget --no-check-certificate https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${OS_TYPE}.sh && \
     bash Miniforge3-Linux-${OS_TYPE}.sh -p /miniconda -b && \
     rm Miniforge3-Linux-${OS_TYPE}.sh && \
     /miniconda/bin/conda update -y conda && \
     /miniconda/bin/conda init && \
-    /miniconda/bin/conda create -n ${CONDA_ENV} python=${PY_VER} pip -y
+    if [ -n "${PY_VER}" ]; then \
+        /miniconda/bin/conda create -n ${CONDA_ENV} python=${PY_VER} pip -y; \
+    else \
+        /miniconda/bin/conda create -n ${CONDA_ENV} pip -y; \
+    fi
 
+# Set PATH for conda
 ENV PATH=/miniconda/bin:${PATH}
 
 # Install OpenMPI via conda (UBI9 repos don't ship openmpi-devel)
@@ -81,7 +107,8 @@ RUN source /miniconda/etc/profile.d/conda.sh && \
     conda install -y conda-forge::openmpi
 
 # Install ROCm from AMD RHEL9 repositories
-# Docs: https://rocm.docs.amd.com/projects/install-on-linux/
+# Package set mirrors upstream install_rocm.sh (Ubuntu apt) package list.
+# Repo layout: https://repo.radeon.com/rocm/rhel9/<version>/main
 RUN tee /etc/yum.repos.d/rocm.repo <<REPO
 [ROCm-${ROCM_VERSION}]
 name=ROCm${ROCM_VERSION}
@@ -98,18 +125,25 @@ RUN dnf install -y \
     rccl \
     rocprofiler-dev \
     roctracer-dev \
-    hip-devel \
-    hipblas-devel \
-    hipsparse-devel \
-    hipfft-devel \
-    rocblas-devel \
-    miopen-hip-devel \
     amd-smi \
+    && (dnf install -y rocm-llvm-dev || true) \
     && dnf clean all \
     && if [ ! -e /opt/rocm ]; then \
          ROCM_DIR=$(ls -d /opt/rocm-* 2>/dev/null | head -1); \
          if [ -n "${ROCM_DIR}" ]; then ln -sfn "${ROCM_DIR}" /opt/rocm; fi; \
        fi
+
+# Optional upstream ROCm helpers (magma / miopen extras), same as ubuntu-rocm
+RUN mkdir -p /tmp/ci_scripts && \
+    curl -fsSL https://raw.githubusercontent.com/pytorch/pytorch/main/.ci/docker/common/install_rocm_magma.sh -o /tmp/ci_scripts/install_rocm_magma.sh && \
+    curl -fsSL https://raw.githubusercontent.com/pytorch/pytorch/main/.ci/docker/common/install_miopen.sh -o /tmp/ci_scripts/install_miopen.sh && \
+    curl -fsSL https://raw.githubusercontent.com/pytorch/pytorch/main/.ci/docker/common/install_rocm_drm.sh -o /tmp/ci_scripts/install_rocm_drm.sh && \
+    curl -fsSL https://raw.githubusercontent.com/pytorch/pytorch/main/.ci/docker/common/common_utils.sh -o /tmp/ci_scripts/common_utils.sh && \
+    chmod +x /tmp/ci_scripts/*.sh && \
+    bash /tmp/ci_scripts/install_rocm_drm.sh /usr || true && \
+    bash /tmp/ci_scripts/install_rocm_magma.sh ${ROCM_VERSION} || true && \
+    bash /tmp/ci_scripts/install_miopen.sh ${ROCM_VERSION} || true && \
+    rm -rf /tmp/ci_scripts
 
 # Create libgomp.so linker symlink (UBI9 only ships libgomp.so.1)
 RUN ln -sf /usr/lib64/libgomp.so.1 /usr/lib64/libgomp.so
@@ -125,30 +159,60 @@ RUN git clone ${PYTORCH_REPO} /pytorch && \
     git submodule sync && \
     git submodule update --init --recursive
 
+# Set OpenBLAS paths (only effective when LAPACK is enabled)
 ENV OpenBLAS_HOME=/usr/lib64:{OpenBLAS_HOME}
+
+# Default ROCm environment — mirrors upstream ubuntu-rocm/Dockerfile
+ENV ROCM_PATH=/opt/rocm \
+    ROCM_HOME=/opt/rocm \
+    ROCM_SOURCE_DIR=/opt/rocm \
+    ROCM_BIN=/opt/rocm/bin \
+    ROCM_CMAKE=/opt/rocm \
+    ROCM_DEVICE_LIB_PATH=/opt/rocm/amdgcn/bitcode \
+    HIP_DEVICE_LIB_PATH=/opt/rocm/amdgcn/bitcode \
+    MAGMA_HOME=/opt/rocm/magma
+ENV PATH=/opt/rocm/bin:/opt/rocm/llvm/bin:${PATH}
+ENV LD_LIBRARY_PATH=/opt/rocm/lib:${LD_LIBRARY_PATH}
+
+# Persist ROCm env for interactive / CI shells (like install_rocm.sh)
+RUN cat > /etc/rocm_env.sh <<'ROCM_ENV' && echo "source /etc/rocm_env.sh" >> /etc/bash.bashrc
+export ROCM_PATH=/opt/rocm
+export ROCM_HOME=/opt/rocm
+export ROCM_SOURCE_DIR=/opt/rocm
+export ROCM_BIN=/opt/rocm/bin
+export ROCM_CMAKE=/opt/rocm
+export PATH=/opt/rocm/bin:/opt/rocm/llvm/bin:${PATH}
+export LD_LIBRARY_PATH=/opt/rocm/lib:${LD_LIBRARY_PATH:-}
+export HIP_DEVICE_LIB_PATH=/opt/rocm/amdgcn/bitcode
+export MAGMA_HOME=/opt/rocm/magma
+ROCM_ENV
+
+# Limit parallel jobs to avoid OOM
 ENV MAX_JOBS=56
+
+# Setting flags and changing the linker to lld from default ld
 ENV CMAKE_LINKER="lld"
 ENV LDFLAGS="-fuse-ld=lld"
+
+# Generate compile_commands.json for structural call graph analysis
 ENV CMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+# Enable F16C and AVX2 for half-precision float16 support on x86-64
 ENV CFLAGS="-mf16c -mavx2"
 ENV CXXFLAGS="-mf16c -mavx2"
+
 ENV USE_MPI=1
 ENV USE_SYSTEM_MPI=1
 
 # ROCm build flags — CUDA is explicitly disabled
 ENV USE_CUDA=0
 ENV USE_ROCM=1
-ENV ROCM_HOME=/opt/rocm
-ENV PATH=/opt/rocm/bin:${PATH}
-ENV LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib64:${LD_LIBRARY_PATH}
-
-WORKDIR /pytorch
-
-# Optional GPU arch list for the runner's AMD GPUs (override at build time)
-ARG PYTORCH_ROCM_ARCH="gfx90a;gfx942"
 ENV PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH}
 
-# Install dependencies and build PyTorch with ROCm
+# Set working directory
+WORKDIR /pytorch
+
+# Install dependencies and build PyTorch (same entrypoint as CUDA image)
 RUN source /miniconda/etc/profile.d/conda.sh && \
     conda activate ${CONDA_ENV} && \
     conda install -y -c conda-forge libstdcxx-ng && \
@@ -156,7 +220,7 @@ RUN source /miniconda/etc/profile.d/conda.sh && \
     pip install --group dev && \
     pip install mkl-static mkl-include && \
     export CMAKE_PREFIX_PATH="${CONDA_PREFIX:-'$(dirname $(which conda))/../'}:${CMAKE_PREFIX_PATH}" && \
-    echo "Building with USE_ROCM=1 USE_CUDA=0 PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH}" && \
+    echo "Building with USE_ROCM=1 USE_CUDA=0 ROCM_VERSION=${ROCM_VERSION} PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH}" && \
     .ci/pytorch/build.sh
 
 # Set default conda environment for interactive use
