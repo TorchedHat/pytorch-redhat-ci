@@ -303,10 +303,10 @@ jobs:
           chmod a+r /tmp/rocm_test_commands.txt
 
           # HSA "Memory critical error ... Reason: Memory in use" under rootless
-          # podman is commonly fixed by sharing host IPC / larger /dev/shm.
+          # podman is commonly fixed by sharing host IPC. Do not pair --ipc=host
+          # with --shm-size (podman: "cannot set shmsize when running in host IPC").
           PODMAN_GPU_ARGS=(
             --ipc=host
-            --shm-size=16g
             --device=/dev/kfd
             --device=/dev/dri
             --group-add=video
