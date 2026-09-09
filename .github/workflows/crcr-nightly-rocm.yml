@@ -301,12 +301,31 @@ jobs:
           # :Z relabels the bind mount for SELinux so the container can read it.
           # Without this, RHEL runners hit: Permission denied on /tmp/test_commands.txt
           chmod a+r /tmp/rocm_test_commands.txt
+
+          # HSA "Memory critical error ... Reason: Memory in use" under rootless
+          # podman is commonly fixed by sharing host IPC / larger /dev/shm.
+          PODMAN_GPU_ARGS=(
+            --ipc=host
+            --shm-size=16g
+            --device=/dev/kfd
+            --device=/dev/dri
+            --group-add=video
+            --group-add=render
+            --security-opt=seccomp=unconfined
+          )
+
+          echo "Preflight: HIP device smoke inside container"
           podman run --rm \
-            --device=/dev/kfd \
-            --device=/dev/dri \
-            --group-add=video \
-            --group-add=render \
-            --security-opt=seccomp=unconfined \
+            "${PODMAN_GPU_ARGS[@]}" \
+            -e HIP_VISIBLE_DEVICES=0 \
+            "${IMAGE_TAG}" bash -lc '
+            source /miniconda/etc/profile.d/conda.sh && conda activate rocm_torch_build
+            cd /tmp
+            python -c "import torch; print(f\"torch={torch.__version__} hip={torch.version.hip} gpus={torch.cuda.device_count()}\"); assert torch.cuda.is_available(), \"HIP device not available\"; x=torch.randn(64,64,device=\"cuda\"); print(float((x@x.T).sum())); print(\"preflight GPU smoke passed\")"
+          '
+
+          podman run --rm \
+            "${PODMAN_GPU_ARGS[@]}" \
             -e CONTINUE_THROUGH_ERROR=True \
             -e HIP_VISIBLE_DEVICES=0 \
             -v /tmp/rocm_test_commands.txt:/tmp/test_commands.txt:Z,ro \

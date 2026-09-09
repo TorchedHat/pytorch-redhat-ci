@@ -89,6 +89,8 @@ RUN dnf install -y --allowerasing \
     bzip2 \
     libdrm-devel \
     sqlite \
+    numactl-libs \
+    numactl \
     && dnf clean all
 
 # Install miniconda after system packages are installed
