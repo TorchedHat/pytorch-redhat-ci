@@ -242,6 +242,9 @@ RUN source /miniconda/etc/profile.d/conda.sh && \
     echo "Building with BUILD_ENVIRONMENT=${BUILD_ENVIRONMENT} USE_ROCM=1 USE_CUDA=0 ROCM_VERSION=${ROCM_VERSION} PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH}" && \
     .ci/pytorch/build.sh
 
+# Leave the source checkout so `import torch` resolves to the installed wheel.
+WORKDIR /
+
 # Set default conda environment for interactive use
 ENV CONDA_DEFAULT_ENV=${CONDA_ENV}
 RUN echo "conda activate ${CONDA_ENV}" >> ~/.bashrc

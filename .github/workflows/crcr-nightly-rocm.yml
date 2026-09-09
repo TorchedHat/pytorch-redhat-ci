@@ -166,10 +166,13 @@ jobs:
           IMAGE_TAG: ${{ steps.sha.outputs.image_tag }}
         run: |
           # Guard against a cached/broken image that never compiled ROCm PyTorch.
+          # Must cd out of /pytorch: wheel install leaves a source tree that shadows
+          # site-packages when cwd is the repo root (same pattern as CUDA sanity).
           podman run --rm "${IMAGE_TAG}" bash -lc '
             source /miniconda/etc/profile.d/conda.sh
             conda activate rocm_torch_build
-            python -c "import torch; print(f\"torch={torch.__version__} hip={torch.version.hip}\"); assert torch.version.hip, \"torch.version.hip empty — ROCm build missing\"; print(\"post-build HIP import smoke passed\")"
+            cd /tmp
+            python -c "import torch; print(f\"torch={torch.__version__} hip={torch.version.hip}\"); assert torch.version.hip, \"torch.version.hip empty - ROCm build missing\"; print(\"post-build HIP import smoke passed\")"
           '
 
       - name: Tag and push to Quay.io
@@ -259,13 +262,13 @@ jobs:
           if [ "${TEST_TIER}" = "critical" ]; then
             # Critical ROCm GPU coverage (mirrors sgpu critical set)
             COMMANDS=$(cat <<'CMDS'
-          python test/run_test.py -i test_nn
-          python test/run_test.py -i test_torch
-          python test/run_test.py -i test_cuda
-          python test/run_test.py -i test_ops
-          python test/run_test.py -i test_unary_ufuncs
-          python test/run_test.py -i test_binary_ufuncs
-          python test/run_test.py -i test_autograd
+          python /pytorch/test/run_test.py -i test_nn
+          python /pytorch/test/run_test.py -i test_torch
+          python /pytorch/test/run_test.py -i test_cuda
+          python /pytorch/test/run_test.py -i test_ops
+          python /pytorch/test/run_test.py -i test_unary_ufuncs
+          python /pytorch/test/run_test.py -i test_binary_ufuncs
+          python /pytorch/test/run_test.py -i test_autograd
           CMDS
           )
           else
@@ -274,7 +277,7 @@ jobs:
             # smoke so the ROCm runtime is actually exercised.
             COMMANDS=$(cat <<'CMDS'
           python -c "import torch, tempfile, os; print(f'PyTorch {torch.__version__} hip={torch.version.hip}'); assert torch.cuda.is_available(), 'HIP/ROCm device not available'; z = torch.randn(64, 64) @ torch.randn(64, 64); assert z.shape == (64, 64); [torch.ones(8, dtype=dt) for dt in (torch.float32, torch.float64, torch.int32, torch.int64, torch.bfloat16)]; x = torch.randn(10, requires_grad=True); ((x ** 2).sum()).backward(); assert x.grad is not None and x.grad.shape == x.shape; m = torch.nn.Linear(16, 4); f = tempfile.NamedTemporaryFile(suffix='.pt', delete=False); torch.save(m.state_dict(), f.name); torch.nn.Linear(16, 4).load_state_dict(torch.load(f.name, weights_only=True)); os.unlink(f.name); g = torch.randn(8, 8, device='cuda'); print((g @ g.T).sum().item()); print('ROCm sanity gate passed')"
-          python -m pytest test/test_torch.py -x -q --timeout=120 -k "test_dir or test_type or test_dtypes"
+          python -m pytest /pytorch/test/test_torch.py -x -q --timeout=120 -k "test_dir or test_type or test_dtypes"
           CMDS
           )
           fi
@@ -307,7 +310,9 @@ jobs:
             -v /tmp/rocm_test_commands.txt:/tmp/test_commands.txt:Z,ro \
             "${IMAGE_TAG}" bash -c '
             source /miniconda/etc/profile.d/conda.sh && conda activate rocm_torch_build
-            cd /pytorch
+            # Stay out of /pytorch so `python -c` / `python -m` do not import the
+            # source tree torch/ and miss the installed wheel (C extensions).
+            cd /tmp
             PASSED=0; FAILED=0; ERRORS=""
             while IFS= read -r cmd; do
               [ -z "$cmd" ] && continue
