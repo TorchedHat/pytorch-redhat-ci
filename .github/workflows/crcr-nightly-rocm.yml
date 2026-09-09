@@ -10,14 +10,24 @@ on:
         required: false
         default: ""
       test_tier:
-        description: "Which ROCm tests to run after build"
+        description: "sanity = quick lists from test_config; critical = full critical suites; build-only = skip tests"
         required: false
         type: choice
-        default: "sanity"
+        default: "critical"
         options:
           - sanity
           - critical
           - build-only
+      test_categories:
+        description: "Which ROCm test categories to run (MI355X: inductor + sgpu + mgpu)"
+        required: false
+        type: choice
+        default: "all"
+        options:
+          - all
+          - inductor
+          - sgpu
+          - mgpu
       no_cache:
         description: "Force podman --no-cache rebuild (recommended until ROCm image is validated)"
         required: false
@@ -25,7 +35,7 @@ on:
         default: true
 
 run-name: >-
-  [Nightly] RHEL 9.6 ROCm @ ${{ inputs.sha && format('manual ({0})', inputs.sha) || 'manual' }} [${{ inputs.test_tier }}]
+  [Nightly] RHEL 9.6 ROCm @ ${{ inputs.sha && format('manual ({0})', inputs.sha) || 'manual' }} [${{ inputs.test_tier }}/${{ inputs.test_categories }}]
 
 env:
   UPSTREAM_REPO: pytorch/pytorch
@@ -35,6 +45,14 @@ env:
   PYTORCH_ROCM_ARCH: "gfx90a;gfx942;gfx950;gfx1100"
   # Keep HUD/CRCR callbacks off until the ROCm pipeline is manually validated.
   PUSH_TO_HUD: "false"
+  # HSA "Memory in use" under rootless podman is fixed by --ipc=host (do not also set --shm-size).
+  PODMAN_ROCM_ARGS: >-
+    --ipc=host
+    --device=/dev/kfd
+    --device=/dev/dri
+    --group-add=video
+    --group-add=render
+    --security-opt=seccomp=unconfined
 
 permissions:
   contents: read
@@ -214,20 +232,68 @@ jobs:
           event-type: nightly
           job-name: "linux-rhel9.6-rocm7.14.0-py3.12-gcc11-x86_64 / build"
 
-  rocm-tests:
-    name: "linux-rhel9.6-rocm7.14.0-py3.12-gcc11-x86_64 / test (rocm, linux.rhel96-rocm)"
+  determine-tests:
+    name: "linux-rhel9.6-rocm7.14.0-py3.12-gcc11-x86_64 / determine-tests"
     needs: rocm-build
     if: ${{ !cancelled() && needs.rocm-build.result == 'success' && inputs.test_tier != 'build-only' }}
+    runs-on: linux.rhel96-rocm
+    timeout-minutes: 30
+    outputs:
+      inductor_tests: ${{ steps.resolve.outputs.inductor_tests }}
+      sgpu_tests: ${{ steps.resolve.outputs.sgpu_tests }}
+      mgpu_tests: ${{ steps.resolve.outputs.mgpu_tests }}
+    steps:
+      - name: Checkout CI repo
+        uses: actions/checkout@v4
+
+      - name: Resolve test lists from test_config.py
+        id: resolve
+        env:
+          TEST_TIER: ${{ inputs.test_tier }}
+        run: |
+          TIER_FLAG="--critical"
+          if [ "${TEST_TIER}" = "sanity" ]; then
+            TIER_FLAG="--sanity"
+          fi
+
+          for cat in inductor sgpu mgpu; do
+            CMDS=$(python3 scripts/test_config.py "${cat}" ${TIER_FLAG} --commands-only)
+            COUNT=$(echo "$CMDS" | grep -cve '^[[:space:]]*$' || true)
+            echo "${cat}: ${COUNT} command(s) (${TEST_TIER})"
+            echo "$CMDS"
+            echo "${cat}_tests=$(echo "$CMDS" | base64 -w0)" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Determination summary
+        env:
+          INDUCTOR_B64: ${{ steps.resolve.outputs.inductor_tests }}
+          SGPU_B64: ${{ steps.resolve.outputs.sgpu_tests }}
+          MGPU_B64: ${{ steps.resolve.outputs.mgpu_tests }}
+        run: |
+          echo "## CRCR Nightly: RHEL 9.6 ROCm — Test Determination" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Tier | \`${{ inputs.test_tier }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Categories | \`${{ inputs.test_categories }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Source | \`scripts/test_config.py\` (no delta yet) |" >> $GITHUB_STEP_SUMMARY
+          for pair in "inductor:$INDUCTOR_B64" "sgpu:$SGPU_B64" "mgpu:$MGPU_B64"; do
+            NAME="${pair%%:*}"
+            B64="${pair#*:}"
+            COUNT=$(echo "$B64" | base64 -d 2>/dev/null | grep -cve '^[[:space:]]*$' || echo 0)
+            echo "| ${NAME} tests | ${COUNT} |" >> $GITHUB_STEP_SUMMARY
+          done
+
+  inductor-tests:
+    name: "linux-rhel9.6-rocm7.14.0-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96-rocm)"
+    needs: [rocm-build, determine-tests]
+    if: ${{ !cancelled() && needs.rocm-build.result == 'success' && needs.determine-tests.result == 'success' && (inputs.test_categories == 'all' || inputs.test_categories == 'inductor') }}
     runs-on: linux.rhel96-rocm
     timeout-minutes: 1440
     env:
       IMAGE_TAG: ${{ needs.rocm-build.outputs.image_tag }}
       PYTORCH_SHA: ${{ needs.rocm-build.outputs.sha }}
-      TEST_TIER: ${{ inputs.test_tier }}
     steps:
-      - name: Checkout CI repo
-        uses: actions/checkout@v4
-
       - name: Check AMD GPU availability
         id: gpu_check
         run: |
@@ -246,94 +312,51 @@ jobs:
           else
             echo "gpu_available=false" >> "$GITHUB_OUTPUT"
             echo "gpu_count=0" >> "$GITHUB_OUTPUT"
-            echo "::warning::No AMD GPU detected — ROCm tests will be skipped"
+            echo "::warning::No AMD GPU detected — inductor GPU tests may be limited"
           fi
 
       - name: Verify image exists
-        if: steps.gpu_check.outputs.gpu_available == 'true'
         run: |
           if ! podman image exists "${IMAGE_TAG}"; then
             echo "::error::Image ${IMAGE_TAG} not found in local podman store"
             exit 1
           fi
 
-      - name: Resolve ROCm test commands
-        id: resolve
-        if: steps.gpu_check.outputs.gpu_available == 'true'
-        run: |
-          if [ "${TEST_TIER}" = "critical" ]; then
-            # Critical ROCm GPU coverage (mirrors sgpu critical set)
-            COMMANDS=$(cat <<'CMDS'
-          python /pytorch/test/run_test.py -i test_nn
-          python /pytorch/test/run_test.py -i test_torch
-          python /pytorch/test/run_test.py -i test_cuda
-          python /pytorch/test/run_test.py -i test_ops
-          python /pytorch/test/run_test.py -i test_unary_ufuncs
-          python /pytorch/test/run_test.py -i test_binary_ufuncs
-          python /pytorch/test/run_test.py -i test_autograd
-          CMDS
-          )
-          else
-            # Sanity matches CUDA PR/nightly quick gate (import, dtype,
-            # autograd, serialization, light test_torch), plus HIP device
-            # smoke so the ROCm runtime is actually exercised.
-            COMMANDS=$(cat <<'CMDS'
-          python -c "import torch, tempfile, os; print(f'PyTorch {torch.__version__} hip={torch.version.hip}'); assert torch.cuda.is_available(), 'HIP/ROCm device not available'; z = torch.randn(64, 64) @ torch.randn(64, 64); assert z.shape == (64, 64); [torch.ones(8, dtype=dt) for dt in (torch.float32, torch.float64, torch.int32, torch.int64, torch.bfloat16)]; x = torch.randn(10, requires_grad=True); ((x ** 2).sum()).backward(); assert x.grad is not None and x.grad.shape == x.shape; m = torch.nn.Linear(16, 4); f = tempfile.NamedTemporaryFile(suffix='.pt', delete=False); torch.save(m.state_dict(), f.name); torch.nn.Linear(16, 4).load_state_dict(torch.load(f.name, weights_only=True)); os.unlink(f.name); g = torch.randn(8, 8, device='cuda'); print((g @ g.T).sum().item()); print('ROCm sanity gate passed')"
-          python -m pytest /pytorch/test/test_torch.py -x -q --timeout=120 -k "test_dir or test_type or test_dtypes"
-          CMDS
-          )
-          fi
-          # Strip leading indentation from heredoc
-          COMMANDS=$(echo "$COMMANDS" | sed 's/^[[:space:]]*//' | sed '/^$/d')
-          echo "$COMMANDS" > /tmp/rocm_test_commands.txt
-          echo "Resolved $(wc -l < /tmp/rocm_test_commands.txt) command(s) for tier=${TEST_TIER}"
-          cat /tmp/rocm_test_commands.txt
-
-      - name: Run ROCm test suite
-        id: rocm_run
+      - name: Run inductor test suite
+        id: inductor_run
         continue-on-error: true
-        if: steps.gpu_check.outputs.gpu_available == 'true'
+        env:
+          TEST_LIST_B64: ${{ needs.determine-tests.outputs.inductor_tests }}
         run: |
-          LOG=/tmp/rocm_test_output.log
-          EXPECTED=$(grep -cve '^[[:space:]]*$' /tmp/rocm_test_commands.txt || true)
-          echo "expected=${EXPECTED}" >> "$GITHUB_OUTPUT"
+          COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
+          if [ -z "$COMMANDS" ]; then
+            echo "No inductor tests to run"
+            echo "passed=0" >> "$GITHUB_OUTPUT"
+            echo "failed=0" >> "$GITHUB_OUTPUT"
+            echo "errors=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-          # :Z relabels the bind mount for SELinux so the container can read it.
-          # Without this, RHEL runners hit: Permission denied on /tmp/test_commands.txt
-          chmod a+r /tmp/rocm_test_commands.txt
+          CMD_COUNT=$(echo "$COMMANDS" | grep -cve '^[[:space:]]*$' || true)
+          echo "Running ${CMD_COUNT} inductor test command(s)"
+          LOG=/tmp/rocm_inductor_test_output.log
+          echo "$COMMANDS" > /tmp/rocm_inductor_test_commands.txt
+          chmod a+r /tmp/rocm_inductor_test_commands.txt
 
-          # HSA "Memory critical error ... Reason: Memory in use" under rootless
-          # podman is commonly fixed by sharing host IPC. Do not pair --ipc=host
-          # with --shm-size (podman: "cannot set shmsize when running in host IPC").
-          PODMAN_GPU_ARGS=(
-            --ipc=host
-            --device=/dev/kfd
-            --device=/dev/dri
-            --group-add=video
-            --group-add=render
-            --security-opt=seccomp=unconfined
-          )
-
-          echo "Preflight: HIP device smoke inside container"
-          podman run --rm \
-            "${PODMAN_GPU_ARGS[@]}" \
-            -e HIP_VISIBLE_DEVICES=0 \
-            "${IMAGE_TAG}" bash -lc '
-            source /miniconda/etc/profile.d/conda.sh && conda activate rocm_torch_build
-            cd /tmp
-            python -c "import torch; print(f\"torch={torch.__version__} hip={torch.version.hip} gpus={torch.cuda.device_count()}\"); assert torch.cuda.is_available(), \"HIP device not available\"; x=torch.randn(64,64,device=\"cuda\"); print(float((x@x.T).sum())); print(\"preflight GPU smoke passed\")"
-          '
+          # Mount ROCm devices when present so GPU inductor paths can run on MI355X.
+          GPU_ARGS=()
+          if [ "${{ steps.gpu_check.outputs.gpu_available }}" = "true" ]; then
+            # shellcheck disable=SC2086
+            GPU_ARGS=(${PODMAN_ROCM_ARGS} -e HIP_VISIBLE_DEVICES=0)
+          fi
 
           podman run --rm \
-            "${PODMAN_GPU_ARGS[@]}" \
+            "${GPU_ARGS[@]}" \
             -e CONTINUE_THROUGH_ERROR=True \
-            -e HIP_VISIBLE_DEVICES=0 \
-            -v /tmp/rocm_test_commands.txt:/tmp/test_commands.txt:Z,ro \
+            -v /tmp/rocm_inductor_test_commands.txt:/tmp/test_commands.txt:Z,ro \
             "${IMAGE_TAG}" bash -c '
             source /miniconda/etc/profile.d/conda.sh && conda activate rocm_torch_build
-            # Stay out of /pytorch so `python -c` / `python -m` do not import the
-            # source tree torch/ and miss the installed wheel (C extensions).
-            cd /tmp
+            cd /pytorch
             PASSED=0; FAILED=0; ERRORS=""
             while IFS= read -r cmd; do
               [ -z "$cmd" ] && continue
@@ -367,11 +390,10 @@ jobs:
           FAILED=$(grep '^FAILED=' "$LOG" | tail -1 | cut -d= -f2)
           FAIL_LIST=$(grep '^\s*\(FAIL\|TIMEOUT\)' "$LOG" || true)
 
-          # Infrastructure failure: commands were resolved but none executed.
-          if [ "${EXPECTED}" -gt 0 ] && [ "${PASSED:-0}" = "0" ] && [ "${FAILED:-0}" = "0" ]; then
-            echo "::error::Resolved ${EXPECTED} test command(s) but executed none (PASSED=0 FAILED=0). Check container mount/permissions."
-            FAILED="${EXPECTED}"
-            FAIL_LIST="$(printf '  INFRA: zero commands executed (likely mount/permission failure)\n%s' "${FAIL_LIST}")"
+          if [ "${CMD_COUNT}" -gt 0 ] && [ "${PASSED:-0}" = "0" ] && [ "${FAILED:-0}" = "0" ]; then
+            echo "::error::Resolved ${CMD_COUNT} inductor command(s) but executed none."
+            FAILED="${CMD_COUNT}"
+            FAIL_LIST="$(printf '  INFRA: zero commands executed\n%s' "${FAIL_LIST}")"
           fi
 
           echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
@@ -385,30 +407,19 @@ jobs:
       - name: Test summary
         if: always()
         env:
-          ERRORS_OUTPUT: ${{ steps.rocm_run.outputs.errors }}
+          ERRORS_OUTPUT: ${{ steps.inductor_run.outputs.errors }}
         run: |
-          echo "## CRCR Nightly: RHEL 9.6 ROCm — Tests" >> $GITHUB_STEP_SUMMARY
+          echo "## CRCR Nightly: RHEL 9.6 ROCm — Inductor Tests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Tier | \`${TEST_TIER}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| GPUs | ${{ steps.gpu_check.outputs.gpu_count }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| HUD push | \`${PUSH_TO_HUD}\` |" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.gpu_check.outputs.gpu_available }}" != "true" ]; then
-            echo "| Result | \`skipped (no GPU)\` |" >> $GITHUB_STEP_SUMMARY
-            exit 0
-          fi
-          FAILED="${{ steps.rocm_run.outputs.failed || '0' }}"
-          PASSED="${{ steps.rocm_run.outputs.passed || '0' }}"
-          EXPECTED="${{ steps.rocm_run.outputs.expected || '0' }}"
-          echo "| Expected | ${EXPECTED} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Passed | ${PASSED} |" >> $GITHUB_STEP_SUMMARY
+          FAILED="${{ steps.inductor_run.outputs.failed || '0' }}"
+          echo "| Passed | ${{ steps.inductor_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
           if [ "${FAILED}" -gt 0 ] 2>/dev/null; then
             echo "| Result | \`completed with failures\` |" >> $GITHUB_STEP_SUMMARY
-          elif [ "${EXPECTED}" -gt 0 ] 2>/dev/null && [ "${PASSED}" = "0" ]; then
-            echo "| Result | \`infra failure (zero tests ran)\` |" >> $GITHUB_STEP_SUMMARY
           else
             echo "| Result | \`success\` |" >> $GITHUB_STEP_SUMMARY
           fi
@@ -424,35 +435,216 @@ jobs:
         id: conclusion
         if: always()
         env:
-          FAILED: ${{ steps.rocm_run.outputs.failed }}
-          PASSED: ${{ steps.rocm_run.outputs.passed }}
-          EXPECTED: ${{ steps.rocm_run.outputs.expected }}
-          GPU_AVAILABLE: ${{ steps.gpu_check.outputs.gpu_available }}
+          FAILED: ${{ steps.inductor_run.outputs.failed }}
         run: |
-          if [ "$GPU_AVAILABLE" != "true" ]; then
-            echo "value=skipped" >> "$GITHUB_OUTPUT"
-          elif [ -n "$FAILED" ] && [ "$FAILED" != "0" ]; then
-            echo "value=failure" >> "$GITHUB_OUTPUT"
-          elif [ -n "$EXPECTED" ] && [ "$EXPECTED" -gt 0 ] && [ "${PASSED:-0}" = "0" ]; then
+          if [ -n "$FAILED" ] && [ "$FAILED" != "0" ]; then
             echo "value=failure" >> "$GITHUB_OUTPUT"
           else
             echo "value=${{ job.status }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Fail job if tests failed
-        if: always() && steps.gpu_check.outputs.gpu_available == 'true'
-        env:
-          FAILED: ${{ steps.rocm_run.outputs.failed }}
-          PASSED: ${{ steps.rocm_run.outputs.passed }}
-          EXPECTED: ${{ steps.rocm_run.outputs.expected }}
+      - name: Report to CRCR
+        if: always() && env.PUSH_TO_HUD == 'true'
+        continue-on-error: true
+        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
+        with:
+          status: completed
+          conclusion: ${{ steps.conclusion.outputs.value }}
+          delivery-id: ${{ needs.rocm-build.outputs.sha }}
+          event-type: nightly
+          job-name: "linux-rhel9.6-rocm7.14.0-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96-rocm)"
+
+  sgpu-tests:
+    name: "linux-rhel9.6-rocm7.14.0-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96-rocm)"
+    needs: [rocm-build, determine-tests, inductor-tests]
+    # Allow inductor skipped when test_categories=sgpu (or inductor failed soft).
+    if: ${{ !cancelled() && needs.rocm-build.result == 'success' && needs.determine-tests.result == 'success' && (needs.inductor-tests.result == 'success' || needs.inductor-tests.result == 'skipped') && (inputs.test_categories == 'all' || inputs.test_categories == 'sgpu') }}
+    runs-on: linux.rhel96-rocm
+    timeout-minutes: 1440
+    env:
+      IMAGE_TAG: ${{ needs.rocm-build.outputs.image_tag }}
+      PYTORCH_SHA: ${{ needs.rocm-build.outputs.sha }}
+    steps:
+      - name: Check AMD GPU availability
+        id: gpu_check
         run: |
-          if [ -n "$FAILED" ] && [ "$FAILED" != "0" ]; then
-            echo "::error::ROCm tests reported ${FAILED} failure(s)"
+          if command -v rocm-smi &>/dev/null && rocm-smi &>/dev/null; then
+            GPU_COUNT=$(rocm-smi -i 2>/dev/null | grep -c 'GPU\[' || true)
+            if [ "${GPU_COUNT}" -eq 0 ]; then
+              GPU_COUNT=$(rocm-smi --showid 2>/dev/null | grep -c 'GPU\[' || echo 1)
+            fi
+            echo "gpu_available=true" >> "$GITHUB_OUTPUT"
+            echo "gpu_count=${GPU_COUNT}" >> "$GITHUB_OUTPUT"
+            rocm-smi || true
+          elif [ -e /dev/kfd ] && [ -e /dev/dri ]; then
+            echo "gpu_available=true" >> "$GITHUB_OUTPUT"
+            echo "gpu_count=1" >> "$GITHUB_OUTPUT"
+            echo "Found /dev/kfd and /dev/dri — proceeding without rocm-smi"
+          else
+            echo "gpu_available=false" >> "$GITHUB_OUTPUT"
+            echo "gpu_count=0" >> "$GITHUB_OUTPUT"
+            echo "::warning::No AMD GPU detected — ROCm sgpu tests will be skipped"
+          fi
+
+      - name: Verify image exists
+        if: steps.gpu_check.outputs.gpu_available == 'true'
+        run: |
+          if ! podman image exists "${IMAGE_TAG}"; then
+            echo "::error::Image ${IMAGE_TAG} not found in local podman store"
             exit 1
           fi
-          if [ -n "$EXPECTED" ] && [ "$EXPECTED" -gt 0 ] && [ "${PASSED:-0}" = "0" ]; then
-            echo "::error::Resolved ${EXPECTED} test command(s) but none passed"
-            exit 1
+
+      - name: Quick sanity gate
+        if: steps.gpu_check.outputs.gpu_available == 'true'
+        run: |
+          # shellcheck disable=SC2086
+          podman run --rm \
+            ${PODMAN_ROCM_ARGS} \
+            -e HIP_VISIBLE_DEVICES=0 \
+            "${IMAGE_TAG}" bash -lc '
+            source /miniconda/etc/profile.d/conda.sh && conda activate rocm_torch_build
+            cd /tmp
+            python - <<'"'"'PY'"'"'
+          import torch, tempfile, os
+          print(f"PyTorch {torch.__version__} hip={torch.version.hip}")
+          assert torch.version.hip, "torch.version.hip empty"
+          assert torch.cuda.is_available(), "HIP/ROCm device not available"
+          z = torch.randn(64, 64) @ torch.randn(64, 64)
+          assert z.shape == (64, 64)
+          for dt in (torch.float32, torch.float64, torch.int32, torch.int64, torch.bfloat16):
+              assert torch.ones(8, dtype=dt).dtype == dt
+          x = torch.randn(10, requires_grad=True)
+          ((x ** 2).sum()).backward()
+          assert x.grad is not None and x.grad.shape == x.shape
+          m = torch.nn.Linear(16, 4)
+          f = tempfile.NamedTemporaryFile(suffix=".pt", delete=False)
+          torch.save(m.state_dict(), f.name)
+          torch.nn.Linear(16, 4).load_state_dict(torch.load(f.name, weights_only=True))
+          os.unlink(f.name)
+          g = torch.randn(8, 8, device="cuda")
+          print((g @ g.T).sum().item())
+          print("ROCm quick sanity gate passed")
+          PY
+            python -m pytest /pytorch/test/test_torch.py -q --timeout=120 -k "test_dir or test_type or test_dtypes"
+          '
+
+      - name: Run single-GPU test suite
+        id: sgpu_run
+        continue-on-error: true
+        if: steps.gpu_check.outputs.gpu_available == 'true'
+        env:
+          TEST_LIST_B64: ${{ needs.determine-tests.outputs.sgpu_tests }}
+        run: |
+          COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
+          if [ -z "$COMMANDS" ]; then
+            echo "No sgpu tests to run"
+            echo "passed=0" >> "$GITHUB_OUTPUT"
+            echo "failed=0" >> "$GITHUB_OUTPUT"
+            echo "errors=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CMD_COUNT=$(echo "$COMMANDS" | grep -cve '^[[:space:]]*$' || true)
+          echo "Running ${CMD_COUNT} single-GPU test command(s)"
+          LOG=/tmp/rocm_sgpu_test_output.log
+          echo "$COMMANDS" > /tmp/rocm_sgpu_test_commands.txt
+          chmod a+r /tmp/rocm_sgpu_test_commands.txt
+
+          # shellcheck disable=SC2086
+          podman run --rm \
+            ${PODMAN_ROCM_ARGS} \
+            -e CONTINUE_THROUGH_ERROR=True \
+            -e HIP_VISIBLE_DEVICES=0 \
+            -v /tmp/rocm_sgpu_test_commands.txt:/tmp/test_commands.txt:Z,ro \
+            "${IMAGE_TAG}" bash -c '
+            source /miniconda/etc/profile.d/conda.sh && conda activate rocm_torch_build
+            cd /pytorch
+            PASSED=0; FAILED=0; ERRORS=""
+            while IFS= read -r cmd; do
+              [ -z "$cmd" ] && continue
+              echo ""
+              echo "============================================================"
+              echo "Running: $cmd"
+              echo "============================================================"
+              echo "$cmd" > /tmp/_run.sh
+              if timeout 7200 bash /tmp/_run.sh; then
+                PASSED=$((PASSED + 1))
+              else
+                RC=$?
+                FAILED=$((FAILED + 1))
+                if [ $RC -eq 124 ]; then
+                  ERRORS="${ERRORS}\n  TIMEOUT(2h): $cmd"
+                else
+                  ERRORS="${ERRORS}\n  FAIL: $cmd"
+                fi
+              fi
+            done < /tmp/test_commands.txt
+            echo ""
+            echo ":::SUMMARY:::"
+            echo "PASSED=${PASSED}"
+            echo "FAILED=${FAILED}"
+            if [ $FAILED -gt 0 ]; then
+              echo -e "ERRORS=${ERRORS}"
+            fi
+          ' 2>&1 | tee "$LOG" || true
+
+          PASSED=$(grep '^PASSED=' "$LOG" | tail -1 | cut -d= -f2)
+          FAILED=$(grep '^FAILED=' "$LOG" | tail -1 | cut -d= -f2)
+          FAIL_LIST=$(grep '^\s*\(FAIL\|TIMEOUT\)' "$LOG" || true)
+
+          if [ "${CMD_COUNT}" -gt 0 ] && [ "${PASSED:-0}" = "0" ] && [ "${FAILED:-0}" = "0" ]; then
+            echo "::error::Resolved ${CMD_COUNT} sgpu command(s) but executed none."
+            FAILED="${CMD_COUNT}"
+            FAIL_LIST="$(printf '  INFRA: zero commands executed\n%s' "${FAIL_LIST}")"
+          fi
+
+          echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
+          echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'errors<<ERRORS_EOF'
+            echo "$FAIL_LIST"
+            echo 'ERRORS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Test summary
+        if: always()
+        env:
+          ERRORS_OUTPUT: ${{ steps.sgpu_run.outputs.errors }}
+        run: |
+          echo "## CRCR Nightly: RHEL 9.6 ROCm — Single-GPU Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| GPUs | ${{ steps.gpu_check.outputs.gpu_count }} |" >> $GITHUB_STEP_SUMMARY
+          FAILED="${{ steps.sgpu_run.outputs.failed || '0' }}"
+          echo "| Passed | ${{ steps.sgpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.gpu_check.outputs.gpu_available }}" != "true" ]; then
+            echo "| Result | \`skipped (no GPU)\` |" >> $GITHUB_STEP_SUMMARY
+          elif [ "${FAILED}" -gt 0 ] 2>/dev/null; then
+            echo "| Result | \`completed with failures\` |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Result | \`success\` |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -n "$ERRORS_OUTPUT" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$ERRORS_OUTPUT" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Determine conclusion
+        id: conclusion
+        if: always()
+        env:
+          FAILED: ${{ steps.sgpu_run.outputs.failed }}
+        run: |
+          if [ -n "$FAILED" ] && [ "$FAILED" != "0" ]; then
+            echo "value=failure" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ job.status }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Report to CRCR
@@ -464,4 +656,177 @@ jobs:
           conclusion: ${{ steps.conclusion.outputs.value }}
           delivery-id: ${{ needs.rocm-build.outputs.sha }}
           event-type: nightly
-          job-name: "linux-rhel9.6-rocm7.14.0-py3.12-gcc11-x86_64 / test (rocm, linux.rhel96-rocm)"
+          job-name: "linux-rhel9.6-rocm7.14.0-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96-rocm)"
+
+  mgpu-tests:
+    name: "linux-rhel9.6-rocm7.14.0-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96-rocm)"
+    needs: [rocm-build, determine-tests, sgpu-tests]
+    # Allow sgpu skipped when test_categories=mgpu (or sgpu soft-failed).
+    if: ${{ !cancelled() && needs.rocm-build.result == 'success' && needs.determine-tests.result == 'success' && (needs.sgpu-tests.result == 'success' || needs.sgpu-tests.result == 'skipped') && (inputs.test_categories == 'all' || inputs.test_categories == 'mgpu') }}
+    runs-on: linux.rhel96-rocm
+    timeout-minutes: 1440
+    env:
+      IMAGE_TAG: ${{ needs.rocm-build.outputs.image_tag }}
+      PYTORCH_SHA: ${{ needs.rocm-build.outputs.sha }}
+    steps:
+      - name: Check multi-GPU availability
+        id: gpu_check
+        run: |
+          GPU_COUNT=0
+          if command -v rocm-smi &>/dev/null && rocm-smi &>/dev/null; then
+            GPU_COUNT=$(rocm-smi -i 2>/dev/null | grep -c 'GPU\[' || true)
+            if [ "${GPU_COUNT}" -eq 0 ]; then
+              GPU_COUNT=$(rocm-smi --showid 2>/dev/null | grep -c 'GPU\[' || echo 0)
+            fi
+            rocm-smi || true
+          elif [ -e /dev/kfd ] && [ -e /dev/dri ]; then
+            # Fall back: count DRM render nodes (best-effort without rocm-smi).
+            GPU_COUNT=$(ls /dev/dri/renderD* 2>/dev/null | wc -l)
+          fi
+
+          echo "gpu_count=${GPU_COUNT}" >> "$GITHUB_OUTPUT"
+          if [ "${GPU_COUNT}" -ge 2 ]; then
+            echo "mgpu_available=true" >> "$GITHUB_OUTPUT"
+            echo "Found ${GPU_COUNT} AMD GPUs — multi-GPU tests enabled"
+          else
+            echo "mgpu_available=false" >> "$GITHUB_OUTPUT"
+            echo "Only ${GPU_COUNT} GPU(s) — skipping multi-GPU tests (need 2+)"
+          fi
+
+      - name: Verify image exists
+        if: steps.gpu_check.outputs.mgpu_available == 'true'
+        run: |
+          if ! podman image exists "${IMAGE_TAG}"; then
+            echo "::error::Image ${IMAGE_TAG} not found in local podman store"
+            exit 1
+          fi
+
+      - name: Run multi-GPU test suite
+        id: mgpu_run
+        continue-on-error: true
+        if: steps.gpu_check.outputs.mgpu_available == 'true'
+        env:
+          TEST_LIST_B64: ${{ needs.determine-tests.outputs.mgpu_tests }}
+        run: |
+          COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
+          if [ -z "$COMMANDS" ]; then
+            echo "No mgpu tests to run"
+            echo "passed=0" >> "$GITHUB_OUTPUT"
+            echo "failed=0" >> "$GITHUB_OUTPUT"
+            echo "errors=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CMD_COUNT=$(echo "$COMMANDS" | grep -cve '^[[:space:]]*$' || true)
+          echo "Running ${CMD_COUNT} multi-GPU test command(s)"
+          LOG=/tmp/rocm_mgpu_test_output.log
+          echo "$COMMANDS" > /tmp/rocm_mgpu_test_commands.txt
+          chmod a+r /tmp/rocm_mgpu_test_commands.txt
+
+          # All GPUs visible (do not set HIP_VISIBLE_DEVICES). NCCL tests use RCCL on ROCm.
+          # shellcheck disable=SC2086
+          podman run --rm \
+            ${PODMAN_ROCM_ARGS} \
+            -e CONTINUE_THROUGH_ERROR=True \
+            -v /tmp/rocm_mgpu_test_commands.txt:/tmp/test_commands.txt:Z,ro \
+            "${IMAGE_TAG}" bash -c '
+            source /miniconda/etc/profile.d/conda.sh && conda activate rocm_torch_build
+            cd /pytorch
+            PASSED=0; FAILED=0; ERRORS=""
+            while IFS= read -r cmd; do
+              [ -z "$cmd" ] && continue
+              echo ""
+              echo "============================================================"
+              echo "Running: $cmd"
+              echo "============================================================"
+              echo "$cmd" > /tmp/_run.sh
+              if timeout 43200 bash /tmp/_run.sh; then
+                PASSED=$((PASSED + 1))
+              else
+                RC=$?
+                FAILED=$((FAILED + 1))
+                if [ $RC -eq 124 ]; then
+                  ERRORS="${ERRORS}\n  TIMEOUT(12h): $cmd"
+                else
+                  ERRORS="${ERRORS}\n  FAIL: $cmd"
+                fi
+              fi
+            done < /tmp/test_commands.txt
+            echo ""
+            echo ":::SUMMARY:::"
+            echo "PASSED=${PASSED}"
+            echo "FAILED=${FAILED}"
+            if [ $FAILED -gt 0 ]; then
+              echo -e "ERRORS=${ERRORS}"
+            fi
+          ' 2>&1 | tee "$LOG" || true
+
+          PASSED=$(grep '^PASSED=' "$LOG" | tail -1 | cut -d= -f2)
+          FAILED=$(grep '^FAILED=' "$LOG" | tail -1 | cut -d= -f2)
+          FAIL_LIST=$(grep '^\s*\(FAIL\|TIMEOUT\)' "$LOG" || true)
+
+          if [ "${CMD_COUNT}" -gt 0 ] && [ "${PASSED:-0}" = "0" ] && [ "${FAILED:-0}" = "0" ]; then
+            echo "::error::Resolved ${CMD_COUNT} mgpu command(s) but executed none."
+            FAILED="${CMD_COUNT}"
+            FAIL_LIST="$(printf '  INFRA: zero commands executed\n%s' "${FAIL_LIST}")"
+          fi
+
+          echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
+          echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'errors<<ERRORS_EOF'
+            echo "$FAIL_LIST"
+            echo 'ERRORS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Test summary
+        if: always()
+        env:
+          ERRORS_OUTPUT: ${{ steps.mgpu_run.outputs.errors }}
+        run: |
+          echo "## CRCR Nightly: RHEL 9.6 ROCm — Multi-GPU Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| GPUs | ${{ steps.gpu_check.outputs.gpu_count }} |" >> $GITHUB_STEP_SUMMARY
+          FAILED="${{ steps.mgpu_run.outputs.failed || '0' }}"
+          echo "| Passed | ${{ steps.mgpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.gpu_check.outputs.mgpu_available }}" != "true" ]; then
+            echo "| Result | \`skipped (need 2+ GPUs)\` |" >> $GITHUB_STEP_SUMMARY
+          elif [ "${FAILED}" -gt 0 ] 2>/dev/null; then
+            echo "| Result | \`completed with failures\` |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Result | \`success\` |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -n "$ERRORS_OUTPUT" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Failed Commands" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$ERRORS_OUTPUT" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Determine conclusion
+        id: conclusion
+        if: always()
+        env:
+          FAILED: ${{ steps.mgpu_run.outputs.failed }}
+        run: |
+          if [ -n "$FAILED" ] && [ "$FAILED" != "0" ]; then
+            echo "value=failure" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ job.status }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report to CRCR
+        if: always() && env.PUSH_TO_HUD == 'true' && steps.gpu_check.outputs.mgpu_available == 'true'
+        continue-on-error: true
+        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
+        with:
+          status: completed
+          conclusion: ${{ steps.conclusion.outputs.value }}
+          delivery-id: ${{ needs.rocm-build.outputs.sha }}
+          event-type: nightly
+          job-name: "linux-rhel9.6-rocm7.14.0-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96-rocm)"

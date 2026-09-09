@@ -100,22 +100,26 @@ Each test job:
 
 ### `crcr-nightly-rocm.yml` — RHEL 9.6 ROCm Build & Test (Manual)
 
-Triggered only via `workflow_dispatch` while the `linux.rhel96-rocm` runner and image are being validated. Cron and HUD reporting will be enabled after manual soak.
+Triggered only via `workflow_dispatch` while the `linux.rhel96-rocm` (MI355X / gfx950) runner and image are being validated. Cron and HUD reporting will be enabled after manual soak.
 
-**Pipeline: `rocm-build → rocm-tests`**
+**Pipeline: `rocm-build → determine-tests → inductor-tests → sgpu-tests → mgpu-tests`**
+
+Same category split as CUDA (`scripts/test_config.py`), sized for a multi-GPU MI355X host.
 
 #### Manual Dispatch
 
 | Input | Description | Default |
 |-------|-------------|---------|
 | `sha` | pytorch/pytorch SHA to build against (leave empty for latest nightly) | _(empty = latest nightly)_ |
-| `test_tier` | Which ROCm tests to run after build | `sanity` |
+| `test_tier` | `sanity` / `critical` lists from `test_config.py`, or `build-only` | `critical` |
+| `test_categories` | `all` / `inductor` / `sgpu` / `mgpu` | `all` |
 | `no_cache` | Force `podman --no-cache` full rebuild (keep on until the ROCm image is validated) | `true` |
 
 | Selection | What runs |
 |-----------|-----------|
-| `sanity` | Build + same CUDA sanity gate (import/dtype/autograd/serialization + light `test_torch`) plus HIP device smoke |
-| `critical` | Build + sgpu-style critical GPU suite on ROCm |
+| `sanity` + `all` | Build + short sanity lists for inductor, sgpu, mgpu |
+| `critical` + `all` | Build + critical inductor / sgpu / mgpu suites (default) |
+| `critical` + `sgpu` | Build + sgpu only (skips inductor/mgpu jobs) |
 | `build-only` | Build only, skip tests |
 
 #### ROCm Build (`linux.rhel96-rocm`, 10h timeout)
@@ -129,10 +133,21 @@ Triggered only via `workflow_dispatch` while the `linux.rhel96-rocm` runner and 
   quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_rocm7_14_0
   ```
 
-#### ROCm Tests (`linux.rhel96-rocm`, 24h timeout)
-- Checks for AMD GPU availability (`rocm-smi` or `/dev/kfd` + `/dev/dri`)
-- Runs selected sanity or critical commands inside the built image with `/dev/kfd` and `/dev/dri` device mounts
-- Bind-mounts the command list with SELinux `:Z,ro` and fails the job if commands resolve but none execute
+#### Determine-tests (`linux.rhel96-rocm`)
+- Resolves inductor / sgpu / mgpu command lists from `scripts/test_config.py` (`--sanity` or `--critical`)
+- No delta/heuristic path yet (full tier lists every run)
+
+#### ROCm Test Jobs (`linux.rhel96-rocm`, 24h timeout each)
+
+| Job | Category | GPU requirement | Per-command timeout |
+|-----|----------|-----------------|---------------------|
+| `inductor-tests` | TorchInductor | optional (≥1 for GPU paths) | 2h |
+| `sgpu-tests` | Single-GPU (`HIP_VISIBLE_DEVICES=0`) | ≥ 1 | 2h (+ quick sanity gate) |
+| `mgpu-tests` | Multi-GPU / distributed (RCCL via `test_c10d_nccl`) | ≥ 2 | 12h |
+
+Shared behavior:
+- Podman: `--ipc=host` + `/dev/kfd` + `/dev/dri` (no `--shm-size`)
+- `CONTINUE_THROUGH_ERROR=True`; summaries report *completed with failures* (no hard job fail on suite failures)
 - **HUD/CRCR callbacks are disabled** (`PUSH_TO_HUD=false`) until the pipeline is manually validated
 
 ### `rhel96-build-test.yml` — PR Build & Sanity Tests (Disabled)
