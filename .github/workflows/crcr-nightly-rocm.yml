@@ -31,7 +31,7 @@ env:
   UPSTREAM_REPO: pytorch/pytorch
   NIGHTLY_BRANCH: nightly
   QUAY_REGISTRY: quay.io/aipcc/pytorch
-  ROCM_VERSION: "7.2"
+  ROCM_VERSION: "7.14.0"
   PYTORCH_ROCM_ARCH: "gfx90a;gfx942;gfx950;gfx1100"
   # Keep HUD/CRCR callbacks off until the ROCm pipeline is manually validated.
   PUSH_TO_HUD: "false"
@@ -42,7 +42,7 @@ permissions:
 
 jobs:
   rocm-build:
-    name: "linux-rhel9.6-rocm7.2-py3.12-gcc11-x86_64 / build"
+    name: "linux-rhel9.6-rocm7.14.0-py3.12-gcc11-x86_64 / build"
     runs-on: linux.rhel96-rocm
     timeout-minutes: 600
     outputs:
@@ -144,6 +144,8 @@ jobs:
             --build-arg RHEL_OS_VERSION=9.6
             --build-arg RHEL_GRAPHICS_VERSION=9.6
             --build-arg ROCM_VERSION="${ROCM_VERSION}"
+            --build-arg ROCM_REPO_VERSION="26.13"
+            --build-arg AMDGPU_INSTALL_VERSION="31.40"
             --build-arg PYTORCH_ROCM_ARCH="${PYTORCH_ROCM_ARCH}"
             --secret id=subscription_key,src=/tmp/sub_key.txt
             --secret id=subscription_org,src=/tmp/sub_org.txt
@@ -210,10 +212,10 @@ jobs:
           conclusion: ${{ job.status }}
           delivery-id: ${{ steps.sha.outputs.sha }}
           event-type: nightly
-          job-name: "linux-rhel9.6-rocm7.2-py3.12-gcc11-x86_64 / build"
+          job-name: "linux-rhel9.6-rocm7.14.0-py3.12-gcc11-x86_64 / build"
 
   rocm-tests:
-    name: "linux-rhel9.6-rocm7.2-py3.12-gcc11-x86_64 / test (rocm, linux.rhel96-rocm)"
+    name: "linux-rhel9.6-rocm7.14.0-py3.12-gcc11-x86_64 / test (rocm, linux.rhel96-rocm)"
     needs: rocm-build
     if: ${{ !cancelled() && needs.rocm-build.result == 'success' && inputs.test_tier != 'build-only' }}
     runs-on: linux.rhel96-rocm
@@ -443,4 +445,4 @@ jobs:
           conclusion: ${{ steps.conclusion.outputs.value }}
           delivery-id: ${{ needs.rocm-build.outputs.sha }}
           event-type: nightly
-          job-name: "linux-rhel9.6-rocm7.2-py3.12-gcc11-x86_64 / test (rocm, linux.rhel96-rocm)"
+          job-name: "linux-rhel9.6-rocm7.14.0-py3.12-gcc11-x86_64 / test (rocm, linux.rhel96-rocm)"

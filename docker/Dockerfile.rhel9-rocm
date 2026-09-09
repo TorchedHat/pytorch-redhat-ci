@@ -17,8 +17,13 @@ ARG PY_VER=3.12
 ARG CONDA_VER=latest
 ARG CONDA_ENV="rocm_torch_build"
 ARG ENABLE_SUBSCRIPTION=false
-# Target ROCm 7.2 for linux.rhel96-rocm (requested platform pin)
-ARG ROCM_VERSION=7.2
+# Target ROCm 7.14.0 for linux.rhel96-rocm.
+# AMD no longer publishes 7.14 under rocm/el9/<ver>; the amdgpu-install
+# 31.40 stream maps ROCm 7.14.0 -> rocmradeon/el9/26.13 + graphics/26.13.
+ARG ROCM_VERSION=7.14.0
+ARG ROCM_REPO_VERSION=26.13
+ARG AMDGPU_INSTALL_VERSION=31.40
+ARG AMDGPU_INSTALL_RPM=amdgpu-install-31.40.314000-1.el9.noarch.rpm
 ARG PYTORCH_ROCM_ARCH="gfx90a;gfx942;gfx950;gfx1100"
 
 # Register via BuildKit secrets when allowed. On subscribed RHEL hosts,
@@ -106,47 +111,53 @@ RUN source /miniconda/etc/profile.d/conda.sh && \
     conda activate ${CONDA_ENV} && \
     conda install -y conda-forge::openmpi
 
-# Install ROCm using AMD's official RHEL/EL9 repos (not rhel9/ which
-# ships el8-tagged RPMs that fail dependency resolution on UBI9).
-# Docs: package-manager-rhel for ROCm 7.2 — rocm/el9 + graphics/el/9.6
+# Install ROCm 7.14.0 using AMD's current EL9 packaging (amdgpu-install 31.40).
+# Classic https://repo.radeon.com/rocm/el9/7.14.0/main does not exist; 7.14.0
+# ships as amdrocm-* under rocmradeon/el9/26.13 (+ graphics/26.13), which is
+# what amdgpu-install configures. Docs: rocm.docs.amd.com docs-7.14.0.
 ARG RHEL_GRAPHICS_VERSION=9.6
-RUN tee /etc/yum.repos.d/rocm.repo <<REPO
+RUN (dnf config-manager --set-enabled crb || \
+     dnf config-manager --set-enabled codeready-builder-for-rhel-9-x86_64-rpms || \
+     true) && \
+    if ! dnf install -y ocl-icd ocl-icd-devel; then \
+      dnf install -y \
+        https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/ocl-icd-2.2.13-4.el9.x86_64.rpm \
+        https://mirror.stream.centos.org/9-stream/CRB/x86_64/os/Packages/ocl-icd-devel-2.2.13-4.el9.x86_64.rpm; \
+    fi
+
+RUN curl -fsSL -o /tmp/amdgpu-install.rpm \
+      "https://repo.radeon.com/amdgpu-install/${AMDGPU_INSTALL_VERSION}/rhel/${RHEL_GRAPHICS_VERSION}/${AMDGPU_INSTALL_RPM}" \
+    && dnf install -y /tmp/amdgpu-install.rpm \
+    && rm -f /tmp/amdgpu-install.rpm \
+    && mkdir -p /etc/dnf/vars \
+    && echo "${RHEL_GRAPHICS_VERSION}" > /etc/dnf/vars/amdgpudistro \
+    && tee /etc/yum.repos.d/rocm.repo <<REPO
 [rocm]
-name=ROCm ${ROCM_VERSION} repository
-baseurl=https://repo.radeon.com/rocm/el9/${ROCM_VERSION}/main
+name=ROCm ${ROCM_VERSION} (stream ${ROCM_REPO_VERSION}) repository
+baseurl=https://repo.radeon.com/rocmradeon/el9/${ROCM_REPO_VERSION}/main
 enabled=1
 priority=50
 gpgcheck=1
 gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
 
 [amdgraphics]
-name=AMD Graphics ${ROCM_VERSION} repository
-baseurl=https://repo.radeon.com/graphics/${ROCM_VERSION}/el/${RHEL_GRAPHICS_VERSION}/main/x86_64/
+name=AMD Graphics ${ROCM_REPO_VERSION} repository
+baseurl=https://repo.radeon.com/graphics/${ROCM_REPO_VERSION}/el/\$amdgpudistro/main/x86_64
 enabled=1
 priority=50
-gpgcheck=1
 gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
+gpgcheck=1
 REPO
 
-# rocm-opencl-devel needs ocl-icd-devel (CRB on RHEL9). Enable CRB when
-# available; otherwise pull the CentOS Stream CRB RPMs directly.
-RUN (dnf config-manager --set-enabled crb ||      dnf config-manager --set-enabled codeready-builder-for-rhel-9-x86_64-rpms ||      true) &&     if ! dnf install -y ocl-icd ocl-icd-devel; then       dnf install -y         https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/ocl-icd-2.2.13-4.el9.x86_64.rpm         https://mirror.stream.centos.org/9-stream/CRB/x86_64/os/Packages/ocl-icd-devel-2.2.13-4.el9.x86_64.rpm;     fi
-
-# Core set mirrors upstream install_rocm.sh apt packages / AMD "rocm" metapkg.
-RUN dnf install -y \
-    rocm-dev \
-    rocm-libs \
-    rocm-utils \
-    rccl \
-    rocprofiler-dev \
-    roctracer-dev \
-    && (dnf install -y amd-smi-lib || true) \
-    && (dnf install -y rocm-llvm-dev || true) \
+# Userspace only: no kernel DKMS inside the UBI build container.
+# Explicit gfx so install works without a visible GPU during image build.
+RUN amdgpu-install -y --usecase=rocm,rocmdev --no-dkms --gfxversion=gfx942 \
     && dnf clean all \
     && if [ ! -e /opt/rocm ]; then \
-         ROCM_DIR=$(ls -d /opt/rocm-* 2>/dev/null | head -1); \
+         ROCM_DIR=$(ls -d /opt/rocm-* /opt/rocm/core-* 2>/dev/null | head -1); \
          if [ -n "${ROCM_DIR}" ]; then ln -sfn "${ROCM_DIR}" /opt/rocm; fi; \
-       fi
+       fi \
+    && (command -v hipcc >/dev/null && hipcc --version || /opt/rocm/bin/hipcc --version)
 
 # Optional upstream ROCm helpers (magma / miopen extras), same as ubuntu-rocm
 RUN mkdir -p /tmp/ci_scripts && \

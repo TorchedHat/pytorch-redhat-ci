@@ -121,11 +121,12 @@ Triggered only via `workflow_dispatch` while the `linux.rhel96-rocm` runner and 
 #### ROCm Build (`linux.rhel96-rocm`, 10h timeout)
 - Resolves the source `main` SHA from `pytorch/pytorch` nightly (or uses the manual `sha` input)
 - Builds PyTorch from source with `USE_ROCM=1` / `USE_CUDA=0` via `docker/Dockerfile.rhel9-rocm`
+- Pins **ROCm 7.14.0** via `amdgpu-install` / `rocmradeon/el9/26.13` (classic `rocm/el9/7.14*` 404s)
 - Defaults to `--no-cache` so a green build is a real compile (set `no_cache=false` later for faster rebuilds)
 - Verifies the image can `import torch` with a non-empty `torch.version.hip` before push
 - Pushes to Quay with tag:
   ```
-  quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_rocm7_2
+  quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_rocm7_14_0
   ```
 
 #### ROCm Tests (`linux.rhel96-rocm`, 24h timeout)
