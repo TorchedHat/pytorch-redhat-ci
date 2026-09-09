@@ -150,8 +150,8 @@ gpgcheck=1
 REPO
 
 # Userspace only: no kernel DKMS inside the UBI build container.
-# Explicit gfx so install works without a visible GPU during image build.
-RUN amdgpu-install -y --usecase=rocm,rocmdev --no-dkms --gfxversion=gfx942 \
+# linux.rhel96-rocm hosts MI355X (PCI 0x75a3) → gfx950.
+RUN amdgpu-install -y --usecase=rocm,rocmdev --no-dkms --gfxversion=gfx950 \
     && dnf clean all \
     && if [ ! -e /opt/rocm ]; then \
          ROCM_DIR=$(ls -d /opt/rocm-* /opt/rocm/core-* 2>/dev/null | head -1); \
