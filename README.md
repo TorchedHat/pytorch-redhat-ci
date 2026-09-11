@@ -1,4 +1,4 @@
-# pytorch-redhat-ci
+# PyTorch Red Hat CI
 
 Red Hat's downstream CI for [PyTorch](https://github.com/pytorch/pytorch), building and testing on **RHEL (Red Hat Enterprise Linux)**. Integrated with PyTorch's upstream CI via [Cross-Repository CI Relay (CRCR)](https://pytorch.org/blog/introducing-cross-repository-ci-relay-scalable-ci-for-pytorchs-out-of-tree-backends/).
 
@@ -9,27 +9,56 @@ pytorch/pytorch
   │
   ├─ PR events ──▶ repository_dispatch (via CRCR) ──▶ rhel96-build-test.yml [disabled]
   │
-  └─ nightly branch ──▶ cron schedule ──▶ crcr-nightly.yml [active]
+  ├─ nightly branch ──▶ cron schedule ──▶ crcr-nightly.yml [active, CUDA]
+  │                                           │
+  │                                           ├─ Extracts source main SHA from nightly commit
+  │                                           ├─ Builds PyTorch in RHEL 9.6 CUDA container
+  │                                           ├─ Runs delta-based test determination
+  │                                           └─ Executes categorized tests (cpu, inductor, sgpu, mgpu)
+  │
+  └─ nightly SHA ──▶ workflow_dispatch ──▶ crcr-nightly-rocm.yml [manual, ROCm]
                                               │
-                                              ├─ Extracts source main SHA from nightly commit
-                                              ├─ Builds PyTorch in RHEL 9.6 container (podman)
-                                              ├─ Runs delta-based test determination
-                                              └─ Executes categorized tests (cpu, inductor, sgpu, mgpu)
+                                              ├─ Builds PyTorch in RHEL 9.6 ROCm container
+                                              ├─ Runs sanity or critical ROCm tests
+                                              └─ HUD/CRCR callbacks currently disabled (PUSH_TO_HUD=false)
 ```
 
 ## Platforms
 
-| Runner | OS | Status |
-|--------|-----|--------|
-| `linux.rhel96` | RHEL 9.6 | Active |
+| Runner | OS | Accelerator | Status |
+|--------|-----|-------------|--------|
+| `linux.rhel96` | RHEL 9.6 | CUDA | Active |
+| `linux.rhel96-rocm` | RHEL 9.6 | ROCm | Active (manual validation) |
 
 ## Workflows
 
 ### `crcr-nightly.yml` — Nightly RHEL 9.6 Build & Test (Active)
 
-Runs daily at 04:00 UTC via cron, or manually via `workflow_dispatch`.
+Runs daily at 08:30 UTC via cron, or manually via `workflow_dispatch`.
 
 **Pipeline: `build → determine-tests → cpu-tests → inductor-tests → sgpu-tests → mgpu-tests`** (sequential)
+
+#### Manual Dispatch
+
+The workflow can be triggered manually from the Actions tab with two optional inputs:
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `sha` | pytorch/pytorch SHA to build against (leave empty for latest nightly) | _(empty = latest nightly)_ |
+| `test_categories` | Which test stages to run after build | `all` |
+
+**Test category options:**
+
+| Selection | What runs |
+|-----------|-----------|
+| `all` | Build + all test stages (same as cron) |
+| `cpu` | Build + determine-tests + CPU tests only |
+| `inductor` | Build + determine-tests + inductor tests only |
+| `sgpu` | Build + determine-tests + single-GPU tests only |
+| `mgpu` | Build + determine-tests + multi-GPU tests only |
+| `build-only` | Build only, skip all tests |
+
+Cron-triggered runs always execute all stages regardless of these inputs. The run title displays the selected category (e.g., `[Nightly] RHEL 9.6 @ manual [sgpu]`).
 
 #### Build (`linux.rhel96`, 10h timeout)
 - Fetches the two most recent commits from `pytorch/pytorch`'s `nightly` branch
@@ -51,27 +80,79 @@ Runs daily at 04:00 UTC via cron, or manually via `workflow_dispatch`.
 - Outputs base64-encoded, categorized test lists (cpu, inductor, sgpu, mgpu)
 - Falls back to full test suite (from `test_config.py`) if delta produces no results
 
-#### Test Jobs (`linux.rhel96`, 24h job timeout, 30m per-command timeout)
+#### Test Jobs (`linux.rhel96`, 24h job timeout)
 
-| Job | Category | GPU Requirement | Runs After |
-|-----|----------|-----------------|------------|
-| `cpu-tests` | CPU-only PyTorch tests | None | `determine-tests` |
-| `inductor-tests` | TorchInductor + Dynamo + Export | None | `cpu-tests` |
-| `sgpu-tests` | Single-GPU tests | ≥ 1 GPU | `inductor-tests` |
-| `mgpu-tests` | Multi-GPU + distributed tests | ≥ 2 GPUs | `sgpu-tests` |
+| Job | Category | GPU Requirement | Per-command timeout | Runs After |
+|-----|----------|-----------------|---------------------|------------|
+| `cpu-tests` | CPU-only PyTorch tests | None | 2 hours | `determine-tests` |
+| `inductor-tests` | TorchInductor + Dynamo + Export | None | 2 hours | `cpu-tests` |
+| `sgpu-tests` | Single-GPU tests | ≥ 1 GPU | 2 hours | `inductor-tests` |
+| `mgpu-tests` | Multi-GPU + distributed tests | ≥ 2 GPUs | 12 hours | `sgpu-tests` |
 
 Each test job:
 - **Mounts the command list as a file** into the container (`-v /tmp/<job>_test_commands.txt:/tmp/test_commands.txt:ro`) — avoids shell quoting issues with `bash -c` argument passing
 - **Writes each command to `/tmp/_run.sh`** and executes via `bash /tmp/_run.sh` — preserves `-k` filter quoting (e.g., `-k "TestA or TestB"`) that would otherwise be mangled by nested `eval`
 - Uses **single-quoted `bash -c '...'`** for the outer podman shell — eliminates escape gymnastics
-- Wraps each command with `timeout 1800` (30 minutes) to prevent individual hangs from blocking the pipeline
+- Wraps each command with `timeout` to prevent individual hangs from blocking the pipeline (2 hours for cpu/inductor/sgpu, 12 hours for mgpu)
 - Runs with `CONTINUE_THROUGH_ERROR=True`, collecting pass/fail counts and printing a `:::SUMMARY:::` block
 - Streams output in real-time via `tee` (no buffering)
 - **Reports accurate job status**: a final "Fail job if tests failed" step checks the test step's `outcome` and exits with code 1 if there were failures, ensuring the job conclusion is `failure` despite `continue-on-error: true` on the test step
 
+### `crcr-nightly-rocm.yml` — RHEL 9.6 ROCm Build & Test (Manual)
+
+Triggered only via `workflow_dispatch` while the `linux.rhel96-rocm` (MI355X / gfx950) runner and image are being validated. Cron and HUD reporting will be enabled after manual soak.
+
+**Pipeline: `rocm-build → determine-tests → inductor-tests → sgpu-tests → mgpu-tests`**
+
+Same category split as CUDA (`scripts/test_config.py`), sized for a multi-GPU MI355X host.
+
+#### Manual Dispatch
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `sha` | pytorch/pytorch SHA to build against (leave empty for latest nightly) | _(empty = latest nightly)_ |
+| `test_tier` | `sanity` / `critical` lists from `test_config.py`, or `build-only` | `critical` |
+| `test_categories` | `all` / `inductor` / `sgpu` / `mgpu` | `all` |
+| `no_cache` | Force `podman --no-cache` full rebuild (keep on until the ROCm image is validated) | `true` |
+
+| Selection | What runs |
+|-----------|-----------|
+| `sanity` + `all` | Build + short sanity lists for inductor, sgpu, mgpu |
+| `critical` + `all` | Build + critical inductor / sgpu / mgpu suites (default) |
+| `critical` + `sgpu` | Build + sgpu only (skips inductor/mgpu jobs) |
+| `build-only` | Build only, skip tests |
+
+#### ROCm Build (`linux.rhel96-rocm`, 10h timeout)
+- Resolves the source `main` SHA from `pytorch/pytorch` nightly (or uses the manual `sha` input)
+- Builds PyTorch from source with `USE_ROCM=1` / `USE_CUDA=0` via `docker/Dockerfile.rhel9-rocm`
+- Pins **ROCm 7.14.0** via `amdgpu-install` / `rocmradeon/el9/26.13` (classic `rocm/el9/7.14*` 404s)
+- Defaults to `--no-cache` so a green build is a real compile (set `no_cache=false` later for faster rebuilds)
+- Verifies the image can `import torch` with a non-empty `torch.version.hip` before push
+- Pushes to Quay with tag:
+  ```
+  quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_rocm7_14_0
+  ```
+
+#### Determine-tests (`linux.rhel96-rocm`)
+- Resolves inductor / sgpu / mgpu command lists from `scripts/test_config.py` (`--sanity` or `--critical`)
+- No delta/heuristic path yet (full tier lists every run)
+
+#### ROCm Test Jobs (`linux.rhel96-rocm`, 24h timeout each)
+
+| Job | Category | GPU requirement | Per-command timeout |
+|-----|----------|-----------------|---------------------|
+| `inductor-tests` | TorchInductor | optional (≥1 for GPU paths) | 2h |
+| `sgpu-tests` | Single-GPU (`HIP_VISIBLE_DEVICES=0`) | ≥ 1 | 2h (+ quick sanity gate) |
+| `mgpu-tests` | Multi-GPU / distributed (RCCL via `test_c10d_nccl`) | ≥ 2 | 12h |
+
+Shared behavior:
+- Podman: `--ipc=host` + `/dev/kfd` + `/dev/dri` (no `--shm-size`)
+- `CONTINUE_THROUGH_ERROR=True`; summaries report *completed with failures* (no hard job fail on suite failures)
+- **HUD/CRCR callbacks are disabled** (`PUSH_TO_HUD=false`) until the pipeline is manually validated
+
 ### `rhel96-build-test.yml` — PR Build & Sanity Tests (Disabled)
 
-Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disabled (`.disabled` suffix) while the nightly workflow is being stabilized. Will be re-enabled once nightly is promoted to L2+.
+Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disabled (`.disabled` suffix) while the nightly workflow is being stabilized. Will be re-enabled once nightly results are consistently stable.
 
 **Build job:**
 - Checks out `pytorch/pytorch` at the dispatched SHA
@@ -86,7 +167,34 @@ Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disable
 
 ## CRCR Integration Level
 
-Currently at **L1** — nightly builds and tests run, but results are not yet reported back to the [PyTorch HUD](https://hud.pytorch.org). Once the nightly workflow is stable, this will be promoted to L2+ with HUD callback reporting.
+Currently at **L2** — nightly builds and tests run daily, with results reported back to the [PyTorch HUD](https://hud.pytorch.org/crcr/TorchedHat/pytorch-redhat-ci) via the CRCR callback action. Each pipeline stage (build, cpu, inductor, sgpu, mgpu) reports its conclusion individually, giving per-job visibility on the HUD dashboard.
+
+### HUD Reporting
+
+Each job in the nightly pipeline sends a `completed` callback to the PyTorch CRCR relay with `event-type: nightly` and `delivery-id` set to the resolved pytorch/pytorch source SHA. The following job names appear on HUD:
+
+| Job | HUD `job-name` |
+|-----|----------------|
+| build | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / build` |
+| cpu-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (cpu, linux.rhel96)` |
+| inductor-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)` |
+| sgpu-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96)` |
+| mgpu-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96)` |
+
+GPU test jobs only report to CRCR when GPUs are actually available on the runner — skipped tests are not reported, avoiding misleading `success` entries on HUD.
+
+ROCm jobs (`rocm-build`, `rocm-tests`) intentionally do **not** report to HUD yet: `PUSH_TO_HUD=false` in `crcr-nightly-rocm.yml`. Flip that flag once the ROCm pipeline has been manually validated.
+
+### L2 Promotion Criteria
+
+This repo was promoted to L2 after meeting the following criteria from [RFC-0050](https://github.com/pytorch/rfcs/blob/main/RFC-0050-Cross-Repository-CI-Relay-for-PyTorch-Out-of-Tree-Backends.md):
+
+| Criterion | Status |
+|-----------|--------|
+| Nightly callback success rate ≥ 80% | Met |
+| Results visible on PyTorch HUD | Met |
+| Timeout rate < 1% | Met |
+| Active for ≥ 1 month | Met |
 
 ## Test Determination
 
@@ -124,11 +232,13 @@ To list critical tests for a category: `python scripts/test_config.py cpu --crit
 
 ```
 .github/workflows/
-  crcr-nightly.yml              # Active nightly pipeline
+  crcr-nightly.yml              # Active CUDA nightly pipeline
+  crcr-nightly-rocm.yml         # Manual ROCm build/test (HUD disabled)
   rhel96-build-test.yml.disabled # PR workflow (disabled)
 
 docker/
   Dockerfile.rhel9              # RHEL 9.6 UBI build image (conda, CUDA, PyTorch from source)
+  Dockerfile.rhel9-rocm         # RHEL 9.6 UBI build image (conda, ROCm, PyTorch from source)
 
 scripts/
   merge_test_results.py         # Unified test merger (heuristic + structural)
@@ -140,20 +250,23 @@ scripts/
 
 ## Prerequisites
 
-1. The `linux.rhel96` self-hosted runner must be registered and online
+1. The `linux.rhel96` (CUDA) and/or `linux.rhel96-rocm` (ROCm) self-hosted runners must be registered and online
 2. `podman` must be available on the runner for container-based builds
-3. **RHEL subscription secrets** must be configured in the repo:
-   - `RHEL_SUBSCRIPTION_ACTIVATION_KEY`
-   - `RHEL_SUBSCRIPTION_ORG_ID`
-4. **Quay.io registry secrets** must be configured for image pushing:
-   - `QUAY_USERNAME` — Quay.io robot account or username
-   - `QUAY_PASSWORD` — Quay.io password or token
-5. This repo must be on the [CRCR allowlist](https://github.com/pytorch/test-infra) to receive dispatches:
+3. This repo must be on the [CRCR allowlist](https://github.com/pytorch/test-infra) to receive dispatches:
    ```yaml
    L2:
      - TorchedHat/pytorch-redhat-ci
    ```
-6. For GPU test jobs, the runner must have NVIDIA GPUs with drivers installed
+4. For GPU test jobs, the runner must have NVIDIA GPUs with drivers installed
+
+### Secrets
+
+| Secret | Used By | Purpose |
+|--------|---------|---------|
+| `RHEL_SUBSCRIPTION_ACTIVATION_KEY` | Build (Dockerfile) | RHEL subscription for `dnf` access |
+| `RHEL_SUBSCRIPTION_ORG_ID` | Build (Dockerfile) | RHEL org ID for subscription-manager |
+| `QUAY_USERNAME` | Build (push step) | Quay.io robot account or username |
+| `QUAY_PASSWORD` | Build (push step) | Quay.io password or token |
 
 ## Related Resources
 
@@ -163,4 +276,6 @@ scripts/
 - [Callback Action](https://github.com/pytorch/test-infra/tree/main/.github/actions/cross-repo-ci-relay-callback)
 - [crcr-test (in-org health check repo)](https://github.com/pytorch/crcr-test)
 - [PyTorch HUD — CRCR Summary](https://hud.pytorch.org/crcr)
+- [PyTorch HUD — TorchedHat Results](https://hud.pytorch.org/crcr/TorchedHat/pytorch-redhat-ci)
+- [RFC-0050: Cross-Repository CI Relay](https://github.com/pytorch/rfcs/blob/main/RFC-0050-Cross-Repository-CI-Relay-for-PyTorch-Out-of-Tree-Backends.md)
 - [RFC-0056: CRCR Nightly & Periodic CI](https://github.com/pytorch/rfcs/pull/98)

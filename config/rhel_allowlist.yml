@@ -3,5 +3,6 @@
 allowed_repos:
   - TorchedHat/pytorch-redhat-ci    # our own nightly workflow
   - subinz1/CRCR                    # test repo
+  - torch-spyre/torch-spyre
   # - spyre-ai/spyre-pytorch        # uncomment when onboarded
   # - partner-org/partner-repo
