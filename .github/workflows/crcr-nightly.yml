@@ -796,8 +796,12 @@ jobs:
           echo "Running ${CMD_COUNT} multi-GPU test command(s)"
           LOG=/tmp/mgpu_test_output.log
           echo "$COMMANDS" > /tmp/mgpu_test_commands.txt
+          # MGPU-009: cap thread pools, lift pids limit (libgomp thread exhaustion).
           podman run --rm --device nvidia.com/gpu=all \
+            --pids-limit=-1 \
             -e CONTINUE_THROUGH_ERROR=True \
+            -e OMP_NUM_THREADS=8 \
+            -e MKL_NUM_THREADS=8 \
             -v /tmp/mgpu_test_commands.txt:/tmp/test_commands.txt:ro \
             "${IMAGE_TAG}" bash -c '
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
