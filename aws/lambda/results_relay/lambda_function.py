@@ -5,7 +5,7 @@ import jwt
 import requests as http_requests
 from jwt import PyJWKClient
 
-from allowlist import is_allowed
+from allowlist import is_allowed, should_forward_to_hud
 from config import GITHUB_ISSUER, GITHUB_JWKS_URI, get_config
 
 logger = logging.getLogger()
@@ -42,7 +42,9 @@ def _verify_oidc_token(token: str, audience: str) -> dict:
     return decoded
 
 
-def _dispatch_to_receiver(payload: dict, source_repo: str) -> None:
+def _dispatch_to_receiver(
+    payload: dict, source_repo: str, forward_to_hud: bool
+) -> None:
     config = get_config()
     if not config.github_token:
         logger.warning("GITHUB_TOKEN not set — skipping repository_dispatch")
@@ -54,8 +56,9 @@ def _dispatch_to_receiver(payload: dict, source_repo: str) -> None:
     dispatch_payload = {
         "event_type": "external-ci-result",
         "client_payload": {
-            "source_repo": source_repo,
             **payload,
+            "source_repo": source_repo,
+            "forward_to_hud": forward_to_hud,
         },
     }
 
@@ -130,9 +133,11 @@ def lambda_handler(event: dict, context: object) -> dict:
         source_repo, payload.get("status"), payload.get("conclusion"),
     )
 
-    _dispatch_to_receiver(payload, source_repo)
+    forward_to_hud = should_forward_to_hud(source_repo, config.allowlist_url)
+    _dispatch_to_receiver(payload, source_repo, forward_to_hud)
 
     return _json_response(200, {
         "message": "Result received and dispatched",
         "source_repo": source_repo,
+        "forward_to_hud": forward_to_hud,
     })

@@ -59,15 +59,39 @@ class TestLambdaHandler(unittest.TestCase):
         self.assertEqual(resp["statusCode"], 403)
 
     @patch("lambda_function._dispatch_to_receiver")
+    @patch("lambda_function.should_forward_to_hud", return_value=False)
     @patch("lambda_function._verify_oidc_token", return_value={"repository": "TorchedHat/pytorch-redhat-ci"})
     @patch("lambda_function.is_allowed", return_value=True)
-    def test_valid_request(self, mock_allowed, mock_oidc, mock_dispatch):
+    def test_valid_request(
+        self, mock_allowed, mock_oidc, mock_forward, mock_dispatch
+    ):
         event = _make_event(body=VALID_PAYLOAD)
         resp = lambda_handler(event, None)
         self.assertEqual(resp["statusCode"], 200)
         body = json.loads(resp["body"])
         self.assertEqual(body["message"], "Result received and dispatched")
-        mock_dispatch.assert_called_once()
+        self.assertFalse(body["forward_to_hud"])
+        mock_dispatch.assert_called_once_with(
+            VALID_PAYLOAD, "TorchedHat/pytorch-redhat-ci", False
+        )
+
+    @patch("lambda_function._dispatch_to_receiver")
+    @patch("lambda_function.should_forward_to_hud", return_value=True)
+    @patch(
+        "lambda_function._verify_oidc_token",
+        return_value={"repository": "TorchedHat/pytorch-redhat-ci"},
+    )
+    @patch("lambda_function.is_allowed", return_value=True)
+    def test_valid_request_with_hud_forwarding(
+        self, mock_allowed, mock_oidc, mock_forward, mock_dispatch
+    ):
+        event = _make_event(body=VALID_PAYLOAD)
+        resp = lambda_handler(event, None)
+        self.assertEqual(resp["statusCode"], 200)
+        self.assertTrue(json.loads(resp["body"])["forward_to_hud"])
+        mock_dispatch.assert_called_once_with(
+            VALID_PAYLOAD, "TorchedHat/pytorch-redhat-ci", True
+        )
 
     @patch("lambda_function._dispatch_to_receiver")
     @patch("lambda_function._verify_oidc_token", return_value={"repository": "TorchedHat/pytorch-redhat-ci"})
@@ -98,7 +122,7 @@ class TestDispatch(unittest.TestCase):
         mock_post.return_value = MagicMock(status_code=204)
 
         from lambda_function import _dispatch_to_receiver
-        _dispatch_to_receiver(VALID_PAYLOAD, "subinz1/CRCR")
+        _dispatch_to_receiver(VALID_PAYLOAD, "subinz1/CRCR", False)
 
         mock_post.assert_called_once()
         call_args = mock_post.call_args
@@ -106,12 +130,35 @@ class TestDispatch(unittest.TestCase):
         sent = call_args[1]["json"]
         self.assertEqual(sent["event_type"], "external-ci-result")
         self.assertEqual(sent["client_payload"]["source_repo"], "subinz1/CRCR")
+        self.assertFalse(sent["client_payload"]["forward_to_hud"])
+
+    @patch("lambda_function.http_requests.post")
+    @patch("lambda_function.get_config")
+    def test_dispatch_preserves_trusted_policy_fields(self, mock_config, mock_post):
+        mock_config.return_value = MagicMock(
+            github_token="ghp_test",
+            dispatch_repo="TorchedHat/pytorch-redhat-ci",
+        )
+        mock_post.return_value = MagicMock(status_code=204)
+
+        from lambda_function import _dispatch_to_receiver
+
+        payload = {
+            **VALID_PAYLOAD,
+            "source_repo": "pytorch/pytorch",
+            "forward_to_hud": True,
+        }
+        _dispatch_to_receiver(payload, "subinz1/CRCR", False)
+
+        sent = mock_post.call_args[1]["json"]
+        self.assertEqual(sent["client_payload"]["source_repo"], "subinz1/CRCR")
+        self.assertFalse(sent["client_payload"]["forward_to_hud"])
 
     @patch("lambda_function.get_config")
     def test_dispatch_skips_without_token(self, mock_config):
         mock_config.return_value = MagicMock(github_token="")
         from lambda_function import _dispatch_to_receiver
-        _dispatch_to_receiver(VALID_PAYLOAD, "subinz1/CRCR")
+        _dispatch_to_receiver(VALID_PAYLOAD, "subinz1/CRCR", False)
 
 
 if __name__ == "__main__":

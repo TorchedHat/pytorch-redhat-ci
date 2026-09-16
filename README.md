@@ -185,6 +185,23 @@ GPU test jobs only report to CRCR when GPUs are actually available on the runner
 
 ROCm jobs (`rocm-build`, `rocm-tests`) intentionally do **not** report to HUD yet: `PUSH_TO_HUD=false` in `crcr-nightly-rocm.yml`. Flip that flag once the ROCm pipeline has been manually validated.
 
+### External Results Relay
+
+The results relay accepts submissions from GitHub Actions repositories whose OIDC
+tokens are listed in `config/rhel_allowlist.yml`. Submission authorization and
+HUD forwarding are separate: the Lambda determines `forward_to_hud` from this
+file, so a sender cannot opt itself into HUD.
+
+Use `forward_to_hud: false` while onboarding or validating a new partner. Its
+results are received and shown in the receiver workflow, but are not forwarded
+to CRCR/HUD. Enable forwarding only after the partner is ready:
+
+```yaml
+allowed_repos:
+  - repo: partner-org/partner-repo
+    forward_to_hud: false
+```
+
 ### L2 Promotion Criteria
 
 This repo was promoted to L2 after meeting the following criteria from [RFC-0050](https://github.com/pytorch/rfcs/blob/main/RFC-0050-Cross-Repository-CI-Relay-for-PyTorch-Out-of-Tree-Backends.md):

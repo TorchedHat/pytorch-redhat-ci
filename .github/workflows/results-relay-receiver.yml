@@ -10,9 +10,6 @@ run-name: >-
   — ${{ github.event.client_payload.conclusion || '?' }}
   (${{ github.event.client_payload.job_name || 'no job name' }})
 
-env:
-  PUSH_TO_HUD: "true"
-
 permissions:
   contents: read
   id-token: write
@@ -33,6 +30,7 @@ jobs:
           WORKFLOW_NAME: ${{ github.event.client_payload.workflow_name }}
           RUN_ID: ${{ github.event.client_payload.run_id }}
           RUN_ATTEMPT: ${{ github.event.client_payload.run_attempt }}
+          FORWARD_TO_HUD: ${{ github.event.client_payload.forward_to_hud || false }}
           FULL_PAYLOAD: ${{ toJson(github.event.client_payload) }}
         run: |
           echo "============================================"
@@ -48,6 +46,7 @@ jobs:
           echo "Workflow:       ${WORKFLOW_NAME}"
           echo "Run ID:         ${RUN_ID}"
           echo "Run Attempt:    ${RUN_ATTEMPT}"
+          echo "Forward to HUD: ${FORWARD_TO_HUD}"
           echo ""
           echo "--- Full Payload ---"
           echo "${FULL_PAYLOAD}" | python3 -m json.tool 2>/dev/null || echo "${FULL_PAYLOAD}"
@@ -63,6 +62,7 @@ jobs:
           echo "| Job Name | \`${JOB_NAME}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Status | \`${STATUS}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Conclusion | \`${CONCLUSION}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Forward to HUD | \`${FORWARD_TO_HUD}\` |" >> $GITHUB_STEP_SUMMARY
 
       - name: Validate required fields
         id: validate
@@ -85,7 +85,7 @@ jobs:
           echo "valid=true" >> "$GITHUB_OUTPUT"
 
       - name: Forward to CRCR/HUD
-        if: env.PUSH_TO_HUD == 'true' && steps.validate.outputs.valid == 'true'
+        if: github.event.client_payload.forward_to_hud == true && steps.validate.outputs.valid == 'true'
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
           status: completed
@@ -95,9 +95,12 @@ jobs:
           job-name: ${{ github.event.client_payload.job_name }}
 
       - name: HUD push status
+        env:
+          FORWARD_TO_HUD: ${{ github.event.client_payload.forward_to_hud || false }}
+          SOURCE_REPO: ${{ github.event.client_payload.source_repo }}
         run: |
-          if [ "${PUSH_TO_HUD}" = "true" ]; then
+          if [ "${FORWARD_TO_HUD}" = "true" ]; then
             echo "Results forwarded to CRCR/HUD"
           else
-            echo "HUD push is disabled (PUSH_TO_HUD=false). Set to 'true' to enable."
+            echo "HUD forwarding is disabled for ${SOURCE_REPO}"
           fi

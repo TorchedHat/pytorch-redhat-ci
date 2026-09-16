@@ -1,8 +1,11 @@
-# Repos authorized to send results to the RHEL Results Relay.
-# Each entry is a GitHub owner/repo whose GHA OIDC tokens will be accepted.
+# Repos authorized to send results to the RHEL Results Relay. HUD forwarding is
+# independent of submission authorization and defaults to false when omitted.
 allowed_repos:
-  - TorchedHat/pytorch-redhat-ci    # our own nightly workflow
-  - subinz1/CRCR                    # test repo
-  - torch-spyre/torch-spyre
-  # - spyre-ai/spyre-pytorch        # uncomment when onboarded
-  # - partner-org/partner-repo
+  - repo: TorchedHat/pytorch-redhat-ci
+    forward_to_hud: true
+  - repo: subinz1/CRCR
+    forward_to_hud: false
+  - repo: torch-spyre/torch-spyre
+    forward_to_hud: true
+  # - repo: partner-org/partner-repo
+  #   forward_to_hud: false
