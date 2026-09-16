@@ -130,6 +130,8 @@ jobs:
           rm -f /tmp/sub_key.txt /tmp/sub_org.txt
 
       - name: Tag and push to Quay.io
+        id: quay_push
+        continue-on-error: true
         env:
           IMAGE_TAG: ${{ steps.sha.outputs.image_tag }}
           QUAY_TAG: ${{ steps.sha.outputs.quay_tag }}
@@ -150,7 +152,12 @@ jobs:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| Local Image | \`${IMAGE_TAG}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Quay Image | \`${QUAY_TAG}\` |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.quay_push.outcome }}" = "success" ]; then
+            echo "| Quay Image | \`${QUAY_TAG}\` |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "::warning::Failed to upload ${QUAY_TAG} to Quay.io"
+            echo "| Quay Image | failed to upload \`${QUAY_TAG}\` |" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Report to CRCR
         if: always() && job.status == 'success'
