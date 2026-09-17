@@ -184,7 +184,12 @@ ENV CXXFLAGS="-mf16c -mavx2"
 ENV USE_MPI=1
 ENV USE_SYSTEM_MPI=1
 
-# Install dependencies and build PyTorch
+# Install dependencies and build PyTorch (bash required below: pipefail/PIPESTATUS).
+# sccache stats come from upstream's own sccache_epilogue EXIT trap in
+# .ci/pytorch/common-build.sh (it prints real stats, then stops the server),
+# so we tee the build log and extract that block instead of running
+# sccache --show-stats afterwards (that would measure a fresh server).
+SHELL ["/bin/bash", "-c"]
 RUN source /miniconda/etc/profile.d/conda.sh && \
     conda activate ${CONDA_ENV} && \
     conda install -y -c conda-forge libstdcxx-ng && \
@@ -198,8 +203,13 @@ RUN source /miniconda/etc/profile.d/conda.sh && \
     pip install --index-url https://download.pytorch.org/whl/test/ triton && \
     echo "=== Triton installed successfully ===" && \
     export CMAKE_PREFIX_PATH="${CONDA_PREFIX:-'$(dirname $(which conda))/../'}:${CMAKE_PREFIX_PATH}" && \
-    .ci/pytorch/build.sh && \
-    { sccache --show-stats > /sccache_stats.txt 2>&1 || true; }
+    set -o pipefail && \
+    .ci/pytorch/build.sh 2>&1 | tee /tmp/pytorch_build.log; \
+    BUILD_RC=${PIPESTATUS[0]}; \
+    { sed -n '/=================== sccache compilation log ===================/,/::endgroup::/p' /tmp/pytorch_build.log > /sccache_stats.txt || true; }; \
+    if [ ! -s /sccache_stats.txt ]; then echo "WARNING: sccache epilogue markers not found in build log; stats unavailable" > /sccache_stats.txt; fi; \
+    rm -f /tmp/pytorch_build.log; \
+    exit "${BUILD_RC:-1}"
 
 # Install structural analysis tool for test determination (cloned fresh
 # each build to pick up the latest changes from the private repo)
