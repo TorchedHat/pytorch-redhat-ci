@@ -18,9 +18,19 @@ RUN --mount=type=secret,id=subscription_key \
         if [ -z "${ACTIVATION_KEY}" ] || [ -z "${ORG_ID}" ]; then \
             echo "ERROR: subscription secrets not provided" && exit 1; \
         fi && \
-        subscription-manager register \
+        export SMDEV_CONTAINER_OFF=1 && \
+        if subscription-manager register \
             --activationkey="${ACTIVATION_KEY}" \
-            --org="${ORG_ID}" && \
+            --org="${ORG_ID}"; then \
+            echo "Registered with subscription-manager"; \
+        else \
+            rc=$?; \
+            if [ "${rc}" -eq 78 ]; then \
+                echo "WARNING: subscription-manager is unavailable in container mode; continuing with UBI repositories"; \
+            else \
+                echo "ERROR: subscription-manager register failed (rc=${rc})" && exit "${rc}"; \
+            fi; \
+        fi && \
         unset ACTIVATION_KEY ORG_ID; \
     fi
 
@@ -29,6 +39,7 @@ RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.n
 RUN dnf install -y --allowerasing \
     wget \
     jq \
+    python3 \
     git \
     gdb \
     unzip \
@@ -55,7 +66,8 @@ RUN dnf install -y --allowerasing \
     bzip2 && \
     dnf clean all
 
-RUN wget --no-check-certificate https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${OS_TYPE}.sh && \
+RUN ln -sf /usr/bin/python3 /usr/bin/python && \
+    wget --no-check-certificate https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${OS_TYPE}.sh && \
     bash Miniforge3-Linux-${OS_TYPE}.sh -p /miniconda -b && \
     rm Miniforge3-Linux-${OS_TYPE}.sh && \
     /miniconda/bin/conda update -y conda && \
