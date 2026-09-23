@@ -35,6 +35,7 @@ env:
   UPSTREAM_REPO: pytorch/pytorch
   NIGHTLY_BRANCH: nightly
   QUAY_REGISTRY: quay.io/aipcc/pytorch
+  BUILD_ENVIRONMENT: linux-rhel9.6-cpu-py3.12
 
 permissions:
   contents: read
@@ -113,6 +114,7 @@ jobs:
             --build-arg COMMIT_HASH="${PYTORCH_SHA}"
             --build-arg ENABLE_SUBSCRIPTION=true
             --build-arg RHEL_OS_VERSION=9.6
+            --build-arg BUILD_ENVIRONMENT="${BUILD_ENVIRONMENT}"
             --secret id=subscription_key,src="${KEY_FILE}"
             --secret id=subscription_org,src="${ORG_FILE}"
           )
@@ -252,7 +254,7 @@ jobs:
               source /miniconda/etc/profile.d/conda.sh && conda activate cpu_torch_build
               cd /pytorch
               PASSED=0; FAILED=0; ERRORS=""
-              while IFS= read -r cmd; do
+              while IFS= read -r cmd || [ -n "${cmd}" ]; do
                 [ -z "$cmd" ] && continue
                 echo "Running: $cmd"
                 printf "%s\\n" "$cmd" > /tmp/_run.sh

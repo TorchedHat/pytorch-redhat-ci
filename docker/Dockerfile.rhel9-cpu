@@ -8,7 +8,10 @@ ARG COMMIT_HASH=""
 ARG OS_TYPE=x86_64
 ARG PY_VER=3.12
 ARG CONDA_ENV="cpu_torch_build"
+ARG BUILD_ENVIRONMENT="linux-rhel9.6-cpu-py3.12"
 ARG ENABLE_SUBSCRIPTION=false
+
+ENV BUILD_ENVIRONMENT=${BUILD_ENVIRONMENT}
 
 RUN --mount=type=secret,id=subscription_key \
     --mount=type=secret,id=subscription_org \
