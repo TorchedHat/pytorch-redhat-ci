@@ -62,7 +62,7 @@ jobs:
               exit 1
             fi
 
-            SOURCE_SHA=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/commits/${NIGHTLY_SHA}" | jq -r '.commit.message' | grep -oP '\\([a-f0-9]{40}\\)' | tr -d '()')
+            SOURCE_SHA=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/commits/${NIGHTLY_SHA}" | jq -r '.commit.message' | grep -oP '\([a-f0-9]{40}\)' | tr -d '()')
           fi
 
           if ! [[ "${SOURCE_SHA}" =~ ^[a-f0-9]{40}$ ]]; then
