@@ -21,6 +21,11 @@ on:
         required: true
         type: boolean
         default: true
+      no_cache:
+        description: "Force a fresh podman build for repeat CPU validation"
+        required: true
+        type: boolean
+        default: true
 
 run-name: >-
   [CPU experiment] RHEL 9.6 @ ${{ inputs.sha || 'latest-nightly' }}
@@ -91,6 +96,7 @@ jobs:
           PYTORCH_SHA: ${{ steps.source.outputs.sha }}
           SUBSCRIPTION_KEY: ${{ secrets.RHEL_SUBSCRIPTION_ACTIVATION_KEY }}
           SUBSCRIPTION_ORG: ${{ secrets.RHEL_SUBSCRIPTION_ORG_ID }}
+          NO_CACHE: ${{ inputs.no_cache }}
         run: |
           umask 077
           KEY_FILE=$(mktemp)
@@ -102,13 +108,20 @@ jobs:
           printf '%s' "${SUBSCRIPTION_KEY}" > "${KEY_FILE}"
           printf '%s' "${SUBSCRIPTION_ORG}" > "${ORG_FILE}"
 
+          BUILD_ARGS=(
+            --file docker/Dockerfile.rhel9-cpu
+            --build-arg COMMIT_HASH="${PYTORCH_SHA}"
+            --build-arg ENABLE_SUBSCRIPTION=true
+            --build-arg RHEL_OS_VERSION=9.6
+            --secret id=subscription_key,src="${KEY_FILE}"
+            --secret id=subscription_org,src="${ORG_FILE}"
+          )
+          if [ "${NO_CACHE}" = "true" ]; then
+            BUILD_ARGS+=(--no-cache)
+          fi
+
           podman build \
-            --file docker/Dockerfile.rhel9-cpu \
-            --build-arg COMMIT_HASH="${PYTORCH_SHA}" \
-            --build-arg ENABLE_SUBSCRIPTION=true \
-            --build-arg RHEL_OS_VERSION=9.6 \
-            --secret id=subscription_key,src="${KEY_FILE}" \
-            --secret id=subscription_org,src="${ORG_FILE}" \
+            "${BUILD_ARGS[@]}" \
             --tag "${IMAGE_TAG}" \
             .
 
@@ -152,6 +165,7 @@ jobs:
           IMAGE_TAG: ${{ steps.source.outputs.image_tag }}
           QUAY_TAG: ${{ steps.source.outputs.quay_tag }}
           IMAGE_PUSHED: ${{ steps.image_publish.outputs.pushed }}
+          NO_CACHE: ${{ inputs.no_cache }}
         run: |
           echo "## Experimental RHEL 9.6 CPU build" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -161,6 +175,7 @@ jobs:
           echo "| Local image | \`${IMAGE_TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Isolated Quay tag | \`${QUAY_TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Image published | \`${IMAGE_PUSHED}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Fresh build | \`${NO_CACHE}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "This manual validation workflow does not report results to CRCR or HUD." >> "$GITHUB_STEP_SUMMARY"
 
