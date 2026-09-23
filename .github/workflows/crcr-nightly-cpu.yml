@@ -8,10 +8,10 @@ on:
         required: false
         default: ""
       test_tier:
-        description: "CPU test coverage to run after the build"
+        description: "sanity = quick list; critical = main nightly CPU baseline; build-only = skip tests"
         required: true
         type: choice
-        default: sanity
+        default: critical
         options:
           - sanity
           - critical

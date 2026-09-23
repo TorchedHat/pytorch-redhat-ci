@@ -25,7 +25,7 @@ pytorch/pytorch
   └─ nightly SHA ──▶ workflow_dispatch ──▶ crcr-nightly-cpu.yml [manual, experimental]
                                               │
                                               ├─ Builds PyTorch in a CPU-only RHEL 9.6 container
-                                              ├─ Runs sanity or critical CPU tests on linux.rhel96-cpu
+                                              ├─ Runs critical or sanity CPU tests on linux.rhel96-cpu
                                               └─ Never reports experimental results to CRCR/HUD
 ```
 
@@ -159,7 +159,7 @@ Shared behavior:
 
 ### `crcr-nightly-cpu.yml` — RHEL 9.6 CPU Build & Test (Experimental)
 
-Triggered only via `workflow_dispatch` while CPU-only builds are being validated. It runs both jobs on `linux.rhel96-cpu`, builds `docker/Dockerfile.rhel9-cpu`, and runs the `sanity` (default) or `critical` CPU list from `scripts/test_config.py` in the resulting `cpu_torch_build` environment.
+Triggered only via `workflow_dispatch` while CPU-only builds are being validated. It runs both jobs on `linux.rhel96-cpu`, builds `docker/Dockerfile.rhel9-cpu`, and runs the `critical` CPU list (the same baseline used by the CUDA nightly workflow) or the optional `sanity` list from `scripts/test_config.py` in the resulting `cpu_torch_build` environment.
 
 The workflow may publish an image only under the isolated tag:
 
@@ -167,7 +167,7 @@ The workflow may publish an image only under the isolated tag:
 quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_cpu_experimental
 ```
 
-That tag cannot overwrite the CUDA nightly image. The upload is non-blocking, but is enabled by default so a separately scheduled CPU test job can restore the exact image. This workflow deliberately has no CRCR callback, so experimental build and test results never reach HUD.
+That tag cannot overwrite the CUDA nightly image. The upload is non-blocking, but is enabled by default so a separately scheduled CPU test job can restore the exact image. `no_cache` also defaults to `true`, so each validation run compiles a fresh image unless explicitly overridden. This workflow deliberately has no CRCR callback, so experimental build and test results never reach HUD.
 
 ### `rhel96-build-test.yml` — PR Build & Sanity Tests (Disabled)
 
