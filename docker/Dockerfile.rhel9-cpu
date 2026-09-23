@@ -1,0 +1,113 @@
+ARG RHEL_OS_VERSION=9.6
+
+FROM docker.io/redhat/ubi9:${RHEL_OS_VERSION}
+
+ARG PYTORCH_REPO=https://github.com/pytorch/pytorch
+ARG PYT_BRANCH=main
+ARG COMMIT_HASH=""
+ARG OS_TYPE=x86_64
+ARG PY_VER=3.12
+ARG CONDA_ENV="cpu_torch_build"
+ARG ENABLE_SUBSCRIPTION=false
+
+RUN --mount=type=secret,id=subscription_key \
+    --mount=type=secret,id=subscription_org \
+    if [ "${ENABLE_SUBSCRIPTION}" = "true" ]; then \
+        ACTIVATION_KEY=$(cat /run/secrets/subscription_key 2>/dev/null) && \
+        ORG_ID=$(cat /run/secrets/subscription_org 2>/dev/null) && \
+        if [ -z "${ACTIVATION_KEY}" ] || [ -z "${ORG_ID}" ]; then \
+            echo "ERROR: subscription secrets not provided" && exit 1; \
+        fi && \
+        subscription-manager register \
+            --activationkey="${ACTIVATION_KEY}" \
+            --org="${ORG_ID}" && \
+        unset ACTIVATION_KEY ORG_ID; \
+    fi
+
+RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+
+RUN dnf install -y --allowerasing \
+    wget \
+    jq \
+    git \
+    gdb \
+    unzip \
+    which \
+    libffi-devel \
+    openssl-devel \
+    gcc \
+    gcc-c++ \
+    make \
+    cmake \
+    ninja-build \
+    lld \
+    openblas \
+    openblas-devel \
+    environment-modules \
+    findutils \
+    curl \
+    sudo \
+    perl \
+    zlib-devel \
+    gcc-gfortran \
+    jemalloc \
+    xz \
+    bzip2 && \
+    dnf clean all
+
+RUN wget --no-check-certificate https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${OS_TYPE}.sh && \
+    bash Miniforge3-Linux-${OS_TYPE}.sh -p /miniconda -b && \
+    rm Miniforge3-Linux-${OS_TYPE}.sh && \
+    /miniconda/bin/conda update -y conda && \
+    /miniconda/bin/conda init && \
+    /miniconda/bin/conda create -n ${CONDA_ENV} python=${PY_VER} pip -y
+
+ENV PATH=/miniconda/bin:${PATH}
+
+RUN source /miniconda/etc/profile.d/conda.sh && \
+    conda activate ${CONDA_ENV} && \
+    conda install -y conda-forge::openmpi
+
+RUN ln -sf /usr/lib64/libgomp.so.1 /usr/lib64/libgomp.so
+
+RUN git clone ${PYTORCH_REPO} /pytorch && \
+    cd /pytorch && \
+    git checkout ${PYT_BRANCH} && \
+    if [ -n "${COMMIT_HASH}" ]; then \
+        echo "Checking out specific commit: ${COMMIT_HASH}" && \
+        git checkout ${COMMIT_HASH}; \
+    fi && \
+    git submodule sync && \
+    git submodule update --init --recursive
+
+ENV OpenBLAS_HOME=/usr/lib64:${OpenBLAS_HOME}
+ENV MAX_JOBS=56
+ENV CMAKE_LINKER=lld
+ENV LDFLAGS=-fuse-ld=lld
+ENV CFLAGS="-mf16c -mavx2"
+ENV CXXFLAGS="-mf16c -mavx2"
+ENV USE_CUDA=0
+ENV USE_ROCM=0
+ENV USE_MPI=1
+ENV USE_SYSTEM_MPI=1
+
+WORKDIR /pytorch
+
+RUN source /miniconda/etc/profile.d/conda.sh && \
+    conda activate ${CONDA_ENV} && \
+    conda install -y -c conda-forge libstdcxx-ng && \
+    pip install -r .ci/docker/requirements-ci.txt && \
+    pip install --group dev && \
+    pip install mkl-static mkl-include && \
+    export CMAKE_PREFIX_PATH="${CONDA_PREFIX:-'$(dirname $(which conda))/../'}:${CMAKE_PREFIX_PATH}" && \
+    .ci/pytorch/build.sh
+
+ENV CONDA_DEFAULT_ENV=${CONDA_ENV}
+
+RUN echo "conda activate ${CONDA_ENV}" >> ~/.bashrc
+
+RUN --mount=type=secret,id=subscription_key \
+    if [ "${ENABLE_SUBSCRIPTION}" = "true" ] && [ -f /run/secrets/subscription_key ]; then \
+        subscription-manager unregister || true && \
+        subscription-manager clean || true; \
+    fi

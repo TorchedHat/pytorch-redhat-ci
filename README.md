@@ -21,6 +21,12 @@ pytorch/pytorch
                                               ├─ Builds PyTorch in RHEL 9.6 ROCm container
                                               ├─ Runs sanity or critical ROCm tests
                                               └─ HUD/CRCR callbacks currently disabled (PUSH_TO_HUD=false)
+
+  └─ nightly SHA ──▶ workflow_dispatch ──▶ crcr-nightly-cpu.yml [manual, experimental]
+                                              │
+                                              ├─ Builds PyTorch in a CPU-only RHEL 9.6 container
+                                              ├─ Runs sanity or critical CPU tests on linux.rhel96-cpu
+                                              └─ Never reports experimental results to CRCR/HUD
 ```
 
 ## Platforms
@@ -29,6 +35,7 @@ pytorch/pytorch
 |--------|-----|-------------|--------|
 | `linux.rhel96` | RHEL 9.6 | CUDA | Active |
 | `linux.rhel96-rocm` | RHEL 9.6 | ROCm | Active (manual validation) |
+| `linux.rhel96-cpu` | RHEL 9.6 | CPU | Experimental manual validation |
 
 ## Workflows
 
@@ -149,6 +156,18 @@ Shared behavior:
 - Podman: `--ipc=host` + `/dev/kfd` + `/dev/dri` (no `--shm-size`)
 - `CONTINUE_THROUGH_ERROR=True`; summaries report *completed with failures* (no hard job fail on suite failures)
 - **HUD/CRCR callbacks are disabled** (`PUSH_TO_HUD=false`) until the pipeline is manually validated
+
+### `crcr-nightly-cpu.yml` — RHEL 9.6 CPU Build & Test (Experimental)
+
+Triggered only via `workflow_dispatch` while CPU-only builds are being validated. It runs both jobs on `linux.rhel96-cpu`, builds `docker/Dockerfile.rhel9-cpu`, and runs the `sanity` (default) or `critical` CPU list from `scripts/test_config.py` in the resulting `cpu_torch_build` environment.
+
+The workflow may publish an image only under the isolated tag:
+
+```
+quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_cpu_experimental
+```
+
+That tag cannot overwrite the CUDA nightly image. The upload is non-blocking, but is enabled by default so a separately scheduled CPU test job can restore the exact image. This workflow deliberately has no CRCR callback, so experimental build and test results never reach HUD.
 
 ### `rhel96-build-test.yml` — PR Build & Sanity Tests (Disabled)
 
