@@ -92,7 +92,7 @@ jobs:
 
             PREV_SOURCE_SHA=$(extract_source_sha "$PREV_NIGHTLY_SHA")
             if [ -z "$PREV_SOURCE_SHA" ]; then
-              echo "::warning::Could not extract previous source SHA, will run full test suite"
+              echo "::warning::Could not extract previous source SHA; delta selection will use critical suites"
               PREV_SOURCE_SHA=""
             fi
           fi
