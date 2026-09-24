@@ -29,19 +29,20 @@ cmd_prepare() {
     esac
   done
 
-  # Cache home: persistent Podman storage first (only vpcuser may enter — chmod
-  # 700 below), falling back to the runner user's home if it is not writable.
+  # Cache home: persistent Podman storage first. The runner may need sudo to
+  # create its directory below the root-owned storage mount.
   # Override with SCCACHE_CACHE_ROOT in the environment if needed.
   local CACHE_ROOT="${SCCACHE_CACHE_ROOT:-/mnt/podman_storage/sccache-cache}"
-  if [ ! -d "${CACHE_ROOT}" ]; then
-    if ! mkdir -p "${CACHE_ROOT}" 2>/dev/null; then
-      echo "::warning::Cannot write ${CACHE_ROOT}, falling back to \$HOME" >&2
-      CACHE_ROOT="$HOME/sccache-cache"
+  if ! mkdir -p "${CACHE_ROOT}" 2>/dev/null || [ ! -w "${CACHE_ROOT}" ]; then
+    if ! command -v sudo >/dev/null || ! sudo -n install -d \
+      -o "$(id -u)" -g "$(id -g)" -m 700 "${CACHE_ROOT}"; then
+      echo "::error::Cannot create writable sccache root: ${CACHE_ROOT}" >&2
+      exit 1
     fi
   fi
   if [ ! -w "${CACHE_ROOT}" ]; then
-    echo "::warning::${CACHE_ROOT} not writable, falling back to \$HOME" >&2
-    CACHE_ROOT="$HOME/sccache-cache"
+    echo "::error::sccache root is not writable: ${CACHE_ROOT}" >&2
+    exit 1
   fi
 
   local SCCACHE_CACHE_DIR="${CACHE_ROOT}/crcr-rhel96/${SCCACHE_CACHE_VERSION}"
