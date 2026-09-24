@@ -46,8 +46,14 @@ cmd_prepare() {
   fi
 
   local SCCACHE_CACHE_DIR="${CACHE_ROOT}/crcr-rhel96/${SCCACHE_CACHE_VERSION}"
-  mkdir -p "${SCCACHE_CACHE_DIR}"
-  chmod 700 "${CACHE_ROOT}" "${SCCACHE_CACHE_DIR}"
+  if ! mkdir -p "${SCCACHE_CACHE_DIR}"; then
+    echo "::error::Cannot create sccache directory: ${SCCACHE_CACHE_DIR}" >&2
+    exit 1
+  fi
+  if [ ! -w "${SCCACHE_CACHE_DIR}" ]; then
+    echo "::error::sccache directory is not writable: ${SCCACHE_CACHE_DIR}" >&2
+    exit 1
+  fi
 
   # TTL cleanup — remove entries older than N days
   if [ -n "${SCCACHE_MAX_AGE_DAYS}" ] && [ "${SCCACHE_MAX_AGE_DAYS}" -gt 0 ] 2>/dev/null; then
