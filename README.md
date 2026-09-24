@@ -53,7 +53,7 @@ The workflow can be triggered manually from the Actions tab.
 |-------|-------------|---------|
 | `sha` | pytorch/pytorch SHA to build against (leave empty for latest nightly) | _(empty = latest nightly)_ |
 | `run_scope` | CPU/CUDA build-only validation or its test pipeline | `all` |
-| `no_cache` | Force both image builds to use `podman --no-cache` | `false` |
+| `no_cache` | Force both image builds to use `podman --no-cache` for this manual run | `false` |
 | `forward_to_hud` | Forward this manual run's results to HUD | `true` |
 
 **Run scope options:**
@@ -66,7 +66,7 @@ The workflow can be triggered manually from the Actions tab.
 | `cpu-build-only` | CPU build only |
 | `cuda-build-only` | CUDA build only |
 
-Cron-triggered runs always execute all stages and forward results to HUD. Manual results are forwarded by default; deselect `forward_to_hud` to keep a validation run out of HUD. The run title displays a non-default scope.
+Cron-triggered runs always execute all stages, force `podman --no-cache` for both builds, and forward results to HUD. Manual results are forwarded by default; deselect `forward_to_hud` to keep a validation run out of HUD. The run title displays a non-default scope or cache mode.
 
 #### Build (`linux.rhel96`, 10h timeout)
 - Fetches the two most recent commits from `pytorch/pytorch`'s `nightly` branch
