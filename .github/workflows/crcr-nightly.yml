@@ -49,19 +49,18 @@ permissions:
   id-token: write
 
 jobs:
-  build:
-    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / build"
+  resolve-source:
+    name: "CRCR nightly / resolve source"
     runs-on: linux.rhel96
-    timeout-minutes: 600
+    timeout-minutes: 15
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
       prev_sha: ${{ steps.sha.outputs.prev_sha }}
-      image_tag: ${{ steps.sha.outputs.image_tag }}
-      quay_tag: ${{ steps.sha.outputs.quay_tag }}
+      cuda_image_tag: ${{ steps.sha.outputs.cuda_image_tag }}
+      cuda_quay_tag: ${{ steps.sha.outputs.cuda_quay_tag }}
+      cpu_image_tag: ${{ steps.sha.outputs.cpu_image_tag }}
+      cpu_quay_tag: ${{ steps.sha.outputs.cpu_quay_tag }}
     steps:
-      - name: Checkout CI repo
-        uses: actions/checkout@v4
-
       - name: Fetch source SHAs from nightly branch
         id: sha
         env:
@@ -102,13 +101,27 @@ jobs:
           echo "Source main SHA (current): $SOURCE_SHA"
           echo "Source main SHA (previous): $PREV_SOURCE_SHA"
           SHORT_SHA=${SOURCE_SHA:0:7}
-          QUAY_TAG="${QUAY_REGISTRY}:rhel9_6_pytorch_nightly_main_git${SHORT_SHA}_cuda${CUDA_VERSION}"
 
           echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
           echo "prev_sha=$PREV_SOURCE_SHA" >> "$GITHUB_OUTPUT"
-          echo "image_tag=rhel9-pytorch-nightly:${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "quay_tag=$QUAY_TAG" >> "$GITHUB_OUTPUT"
-          echo "Quay tag: $QUAY_TAG"
+          echo "cuda_image_tag=rhel9-pytorch-nightly:${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "cuda_quay_tag=${QUAY_REGISTRY}:rhel9_6_pytorch_nightly_main_git${SHORT_SHA}_cuda${CUDA_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "cpu_image_tag=rhel9-pytorch-nightly-cpu:${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "cpu_quay_tag=${QUAY_REGISTRY}:rhel9_6_pytorch_nightly_main_git${SHORT_SHA}_cpu" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / build"
+    needs: resolve-source
+    runs-on: linux.rhel96
+    timeout-minutes: 600
+    outputs:
+      sha: ${{ needs.resolve-source.outputs.sha }}
+      prev_sha: ${{ needs.resolve-source.outputs.prev_sha }}
+      image_tag: ${{ needs.resolve-source.outputs.cuda_image_tag }}
+      quay_tag: ${{ needs.resolve-source.outputs.cuda_quay_tag }}
+    steps:
+      - name: Checkout CI repo
+        uses: actions/checkout@v4
 
       - name: Log in to Quay.io
         env:
@@ -123,8 +136,8 @@ jobs:
 
       - name: Build container image
         env:
-          IMAGE_TAG: ${{ steps.sha.outputs.image_tag }}
-          PYTORCH_SHA: ${{ steps.sha.outputs.sha }}
+          IMAGE_TAG: ${{ needs.resolve-source.outputs.cuda_image_tag }}
+          PYTORCH_SHA: ${{ needs.resolve-source.outputs.sha }}
           SUBSCRIPTION_KEY: ${{ secrets.RHEL_SUBSCRIPTION_ACTIVATION_KEY }}
           SUBSCRIPTION_ORG: ${{ secrets.RHEL_SUBSCRIPTION_ORG_ID }}
           NO_CACHE: ${{ inputs.no_cache }}
@@ -156,15 +169,15 @@ jobs:
         if: always() && steps.sccache.outputs.volume_arg != ''
         run: |
           scripts/sccache.sh stats \
-            --image "${{ steps.sha.outputs.image_tag }}" \
+            --image "${{ needs.resolve-source.outputs.cuda_image_tag }}" \
             --cache-dir "${{ steps.sccache.outputs.cache_dir }}"
 
       - name: Tag and push to Quay.io
         id: quay_push
         continue-on-error: true
         env:
-          IMAGE_TAG: ${{ steps.sha.outputs.image_tag }}
-          QUAY_TAG: ${{ steps.sha.outputs.quay_tag }}
+          IMAGE_TAG: ${{ needs.resolve-source.outputs.cuda_image_tag }}
+          QUAY_TAG: ${{ needs.resolve-source.outputs.cuda_quay_tag }}
         run: |
           podman tag "${IMAGE_TAG}" "${QUAY_TAG}"
           podman push "${QUAY_TAG}"
@@ -172,9 +185,9 @@ jobs:
 
       - name: Build summary
         env:
-          IMAGE_TAG: ${{ steps.sha.outputs.image_tag }}
-          QUAY_TAG: ${{ steps.sha.outputs.quay_tag }}
-          PYTORCH_SHA: ${{ steps.sha.outputs.sha }}
+          IMAGE_TAG: ${{ needs.resolve-source.outputs.cuda_image_tag }}
+          QUAY_TAG: ${{ needs.resolve-source.outputs.cuda_quay_tag }}
+          PYTORCH_SHA: ${{ needs.resolve-source.outputs.sha }}
           SCCACHE_CACHE_DIR: ${{ steps.sccache.outputs.cache_dir }}
           NO_CACHE: ${{ inputs.no_cache }}
         run: |
@@ -205,9 +218,133 @@ jobs:
         with:
           status: completed
           conclusion: ${{ job.status }}
-          delivery-id: ${{ steps.sha.outputs.sha }}
+          delivery-id: ${{ needs.resolve-source.outputs.sha }}
           event-type: nightly
           job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / build"
+
+  cpu-build:
+    name: "linux-rhel9.6-cpu-py3.12-x86_64 / build"
+    needs: resolve-source
+    if: ${{ github.event_name == 'schedule' || inputs.test_categories == 'all' || inputs.test_categories == 'cpu' || inputs.test_categories == 'build-only' }}
+    runs-on: linux.rhel96-cpu
+    timeout-minutes: 600
+    outputs:
+      sha: ${{ needs.resolve-source.outputs.sha }}
+      image_tag: ${{ needs.resolve-source.outputs.cpu_image_tag }}
+      quay_tag: ${{ needs.resolve-source.outputs.cpu_quay_tag }}
+      image_pushed: ${{ steps.image_publish.outputs.pushed }}
+    steps:
+      - name: Checkout CI repo
+        uses: actions/checkout@v4
+
+      - name: Log in to Quay.io
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+        run: echo "$QUAY_PASSWORD" | podman login quay.io -u "$QUAY_USERNAME" --password-stdin
+
+      - name: Build CPU container image
+        env:
+          IMAGE_TAG: ${{ needs.resolve-source.outputs.cpu_image_tag }}
+          PYTORCH_SHA: ${{ needs.resolve-source.outputs.sha }}
+          SUBSCRIPTION_KEY: ${{ secrets.RHEL_SUBSCRIPTION_ACTIVATION_KEY }}
+          SUBSCRIPTION_ORG: ${{ secrets.RHEL_SUBSCRIPTION_ORG_ID }}
+          NO_CACHE: ${{ inputs.no_cache }}
+        run: |
+          umask 077
+          KEY_FILE=$(mktemp)
+          ORG_FILE=$(mktemp)
+          cleanup() {
+            rm -f "${KEY_FILE}" "${ORG_FILE}"
+          }
+          trap cleanup EXIT
+          printf '%s' "${SUBSCRIPTION_KEY}" > "${KEY_FILE}"
+          printf '%s' "${SUBSCRIPTION_ORG}" > "${ORG_FILE}"
+
+          BUILD_ARGS=(
+            --file docker/Dockerfile.rhel9-cpu
+            --build-arg COMMIT_HASH="${PYTORCH_SHA}"
+            --build-arg ENABLE_SUBSCRIPTION=true
+            --build-arg RHEL_OS_VERSION=9.6
+            --build-arg BUILD_ENVIRONMENT=linux-rhel9.6-cpu-py3.12
+            --secret id=subscription_key,src="${KEY_FILE}"
+            --secret id=subscription_org,src="${ORG_FILE}"
+          )
+          if [ "${NO_CACHE}" = "true" ]; then
+            BUILD_ARGS+=(--no-cache)
+          fi
+
+          podman build \
+            "${BUILD_ARGS[@]}" \
+            --tag "${IMAGE_TAG}" \
+            .
+
+      - name: Verify CPU-only build
+        env:
+          IMAGE_TAG: ${{ needs.resolve-source.outputs.cpu_image_tag }}
+        run: |
+          podman run --rm "${IMAGE_TAG}" bash -c '
+            source /miniconda/etc/profile.d/conda.sh && conda activate cpu_torch_build
+            cd /tmp
+            python -c "
+          import torch
+          assert torch.version.cuda is None, torch.version.cuda
+          assert not torch.cuda.is_available()
+          result = torch.randn(64, 64) @ torch.randn(64, 64)
+          assert result.shape == (64, 64)
+          print(f\"CPU-only PyTorch {torch.__version__} loaded successfully\")
+          "
+          '
+
+      - name: Tag and push to Quay.io
+        id: quay_push
+        continue-on-error: true
+        env:
+          IMAGE_TAG: ${{ needs.resolve-source.outputs.cpu_image_tag }}
+          QUAY_TAG: ${{ needs.resolve-source.outputs.cpu_quay_tag }}
+        run: |
+          podman tag "${IMAGE_TAG}" "${QUAY_TAG}"
+          podman push "${QUAY_TAG}"
+          echo "Pushed: ${QUAY_TAG}"
+
+      - name: Record image publication result
+        id: image_publish
+        if: always()
+        run: echo "pushed=${{ steps.quay_push.outcome == 'success' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build summary
+        if: always()
+        env:
+          IMAGE_TAG: ${{ needs.resolve-source.outputs.cpu_image_tag }}
+          QUAY_TAG: ${{ needs.resolve-source.outputs.cpu_quay_tag }}
+          PYTORCH_SHA: ${{ needs.resolve-source.outputs.sha }}
+          IMAGE_PUSHED: ${{ steps.image_publish.outputs.pushed }}
+          NO_CACHE: ${{ inputs.no_cache }}
+        run: |
+          echo "## CRCR Nightly: RHEL 9.6 — CPU Build" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Property | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Local Image | \`${IMAGE_TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${IMAGE_PUSHED}" = "true" ]; then
+            echo "| Quay Image | \`${QUAY_TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Failed to upload ${QUAY_TAG} to Quay.io"
+            echo "| Quay Image | failed to upload \`${QUAY_TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "| no_cache | \`${NO_CACHE}\` |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report to CRCR
+        if: ${{ always() && job.status == 'success' && (github.event_name == 'schedule' || inputs.forward_to_hud) }}
+        continue-on-error: true
+        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
+        with:
+          status: completed
+          conclusion: ${{ job.status }}
+          delivery-id: ${{ needs.resolve-source.outputs.sha }}
+          event-type: nightly
+          job-name: "linux-rhel9.6-cpu-py3.12-x86_64 / build"
 
   determine-tests:
     name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / determine-tests"
@@ -216,7 +353,6 @@ jobs:
     runs-on: linux.rhel96
     timeout-minutes: 600
     outputs:
-      cpu_tests: ${{ steps.resolve.outputs.cpu_tests }}
       inductor_tests: ${{ steps.resolve.outputs.inductor_tests }}
       sgpu_tests: ${{ steps.resolve.outputs.sgpu_tests }}
       mgpu_tests: ${{ steps.resolve.outputs.mgpu_tests }}
@@ -246,7 +382,7 @@ jobs:
               cd /pytorch
               # Build valid test name list from run_test.py
               VALID_TESTS=\$(python test/run_test.py -i __probe__ 2>&1 | grep 'invalid choice' | sed \"s/.*choose from //\" | tr -d \")'\" | tr ',' '\n' | sed 's/^ //' || true)
-              for cat in cpu inductor sgpu mgpu; do
+              for cat in inductor sgpu mgpu; do
                 RAW=\$(python /ci_scripts/merge_test_results.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category \$cat --commands-only 2>/dev/null) || true
                 # Filter: keep only commands whose -i test name is in VALID_TESTS
                 CMDS=\"\"
@@ -265,10 +401,10 @@ jobs:
             echo "$ALL_RESULTS"
 
             # Parse results by category delimiter
-            for cat in cpu inductor sgpu mgpu; do
+            for cat in inductor sgpu mgpu; do
               CMDS=$(echo "$ALL_RESULTS" | sed -n "/:::${cat}:::/,/:::.*:::/{ /:::/d; p; }" | sed '/^$/d')
-              # Exclude CUDA-only tests from cpu/inductor categories
-              if [ "$cat" = "cpu" ] || [ "$cat" = "inductor" ]; then
+              # Exclude CUDA-only tests from the inductor category.
+              if [ "$cat" = "inductor" ]; then
                 FILTERED=""
                 while IFS= read -r line; do
                   [ -z "$line" ] && continue
@@ -301,7 +437,7 @@ jobs:
             delta)    TIER_FLAG="--critical" ;;  # fallback when delta produces nothing
           esac
 
-          for cat in cpu inductor sgpu mgpu; do
+          for cat in inductor sgpu mgpu; do
             VAR="${cat}_tests"
             CURRENT=$(grep "^${VAR}=" "$GITHUB_OUTPUT" 2>/dev/null | cut -d= -f2-)
             DECODED=$(echo "$CURRENT" | base64 -d 2>/dev/null || true)
@@ -325,7 +461,6 @@ jobs:
 
       - name: Determination summary
         env:
-          CPU_B64: ${{ steps.resolve.outputs.cpu_tests }}
           INDUCTOR_B64: ${{ steps.resolve.outputs.inductor_tests }}
           SGPU_B64: ${{ steps.resolve.outputs.sgpu_tests }}
           MGPU_B64: ${{ steps.resolve.outputs.mgpu_tests }}
@@ -338,7 +473,7 @@ jobs:
           echo "| Strategy | heuristic + structural (union) |" >> $GITHUB_STEP_SUMMARY
           echo "| Current SHA | \`${PYTORCH_SHA:0:10}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Previous SHA | \`${PREV_SHA:0:10}\` |" >> $GITHUB_STEP_SUMMARY
-          for pair in "cpu:$CPU_B64" "inductor:$INDUCTOR_B64" "sgpu:$SGPU_B64" "mgpu:$MGPU_B64"; do
+          for pair in "inductor:$INDUCTOR_B64" "sgpu:$SGPU_B64" "mgpu:$MGPU_B64"; do
             NAME="${pair%%:*}"
             B64="${pair#*:}"
             COUNT=$(echo "$B64" | base64 -d 2>/dev/null | grep -c '.' || echo 0)
@@ -346,30 +481,46 @@ jobs:
           done
 
   cpu-tests:
-    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (cpu, linux.rhel96)"
-    needs: [build, determine-tests]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.determine-tests.result == 'success' && (github.event_name == 'schedule' || inputs.test_categories == 'all' || inputs.test_categories == 'cpu') }}
-    runs-on: linux.rhel96
+    name: "linux-rhel9.6-cpu-py3.12-x86_64 / test (cpu, linux.rhel96-cpu)"
+    needs: cpu-build
+    if: ${{ !cancelled() && needs.cpu-build.result == 'success' && (github.event_name == 'schedule' || inputs.test_categories == 'all' || inputs.test_categories == 'cpu') }}
+    runs-on: linux.rhel96-cpu
     timeout-minutes: 1440
     env:
-      IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
-      PYTORCH_SHA: ${{ needs.build.outputs.sha }}
+      IMAGE_TAG: ${{ needs.cpu-build.outputs.image_tag }}
+      QUAY_TAG: ${{ needs.cpu-build.outputs.quay_tag }}
+      IMAGE_PUSHED: ${{ needs.cpu-build.outputs.image_pushed }}
+      PYTORCH_SHA: ${{ needs.cpu-build.outputs.sha }}
     steps:
-      - name: Verify image exists
+      - name: Checkout CI repo
+        uses: actions/checkout@v4
+
+      - name: Restore CPU image when needed
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
         run: |
-          if ! podman image exists "${IMAGE_TAG}"; then
-            echo "::error::Image ${IMAGE_TAG} not found in local podman store"
+          if podman image exists "${IMAGE_TAG}"; then
+            exit 0
+          fi
+          if [ "${IMAGE_PUSHED}" != "true" ]; then
+            echo "::error::The CPU image is not local and the Quay upload failed. Re-run after Quay is available."
             exit 1
           fi
+          echo "${QUAY_PASSWORD}" | podman login quay.io -u "${QUAY_USERNAME}" --password-stdin
+          podman pull "${QUAY_TAG}"
+          podman tag "${QUAY_TAG}" "${IMAGE_TAG}"
 
       - name: Quick sanity gate
         run: |
           podman run --rm "${IMAGE_TAG}" bash -c '
-            source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
+            source /miniconda/etc/profile.d/conda.sh && conda activate cpu_torch_build
             cd /tmp
             python -c "
           import torch, tempfile, os
           print(f\"PyTorch {torch.__version__} loaded\")
+          assert torch.version.cuda is None, torch.version.cuda
+          assert not torch.cuda.is_available()
           z = torch.randn(64, 64) @ torch.randn(64, 64)
           assert z.shape == (64, 64)
           for dt in [torch.float32, torch.float64, torch.int32, torch.int64, torch.bfloat16]:
@@ -386,11 +537,27 @@ jobs:
           "
           '
 
+      - name: Resolve CPU test list
+        id: tests
+        run: |
+          case "${TEST_TIER}" in
+            sanity) TIER_FLAG=--sanity ;;
+            critical) TIER_FLAG=--critical ;;
+            full) TIER_FLAG="" ;;
+            *)
+              echo "::error::Unsupported CPU test tier: ${TEST_TIER}"
+              exit 1
+              ;;
+          esac
+          COMMANDS=$(python3 scripts/test_config.py cpu ${TIER_FLAG} --commands-only)
+          echo "commands_b64=$(echo "${COMMANDS}" | base64 -w0)" >> "$GITHUB_OUTPUT"
+          echo "count=$(echo "${COMMANDS}" | sed '/^$/d' | wc -l)" >> "$GITHUB_OUTPUT"
+
       - name: Run CPU test suite
         id: cpu_run
         continue-on-error: true
         env:
-          TEST_LIST_B64: ${{ needs.determine-tests.outputs.cpu_tests }}
+          TEST_LIST_B64: ${{ steps.tests.outputs.commands_b64 }}
         run: |
           COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
           if [ -z "$COMMANDS" ]; then
@@ -405,11 +572,12 @@ jobs:
           echo "Running ${CMD_COUNT} CPU test command(s)"
           LOG=/tmp/cpu_test_output.log
           echo "$COMMANDS" > /tmp/cpu_test_commands.txt
+          set +e
           podman run --rm \
             -e CONTINUE_THROUGH_ERROR=True \
             -v /tmp/cpu_test_commands.txt:/tmp/test_commands.txt:ro \
             "${IMAGE_TAG}" bash -c '
-            source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
+            source /miniconda/etc/profile.d/conda.sh && conda activate cpu_torch_build
             cd /pytorch
             PASSED=0; FAILED=0; ERRORS=""
             while IFS= read -r cmd; do
@@ -438,7 +606,16 @@ jobs:
             if [ $FAILED -gt 0 ]; then
               echo -e "ERRORS=${ERRORS}"
             fi
-          ' 2>&1 | tee "$LOG" || true
+          ' 2>&1 | tee "$LOG"
+          PODMAN_STATUS=${PIPESTATUS[0]}
+          set -e
+
+          if [ "${PODMAN_STATUS}" -ne 0 ] || ! grep -q '^:::SUMMARY:::' "$LOG"; then
+            echo "passed=0" >> "$GITHUB_OUTPUT"
+            echo "failed=1" >> "$GITHUB_OUTPUT"
+            echo "errors=Container test harness failed before producing a summary." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
 
           PASSED=$(grep '^PASSED=' "$LOG" | tail -1 | cut -d= -f2)
           FAILED=$(grep '^FAILED=' "$LOG" | tail -1 | cut -d= -f2)
@@ -461,7 +638,8 @@ jobs:
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Mode | \`${{ needs.determine-tests.outputs.mode }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test tier | \`${TEST_TIER}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commands | ${{ steps.tests.outputs.count || '0' }} |" >> $GITHUB_STEP_SUMMARY
           FAILED="${{ steps.cpu_run.outputs.failed || '0' }}"
           echo "| Passed | ${{ steps.cpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
@@ -497,14 +675,14 @@ jobs:
         with:
           status: completed
           conclusion: ${{ steps.conclusion.outputs.value }}
-          delivery-id: ${{ needs.build.outputs.sha }}
+          delivery-id: ${{ needs.cpu-build.outputs.sha }}
           event-type: nightly
-          job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (cpu, linux.rhel96)"
+          job-name: "linux-rhel9.6-cpu-py3.12-x86_64 / test (cpu, linux.rhel96-cpu)"
 
 
   inductor-tests:
     name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)"
-    needs: [build, determine-tests, cpu-tests]
+    needs: [build, determine-tests]
     if: ${{ !cancelled() && needs.build.result == 'success' && needs.determine-tests.result == 'success' && (github.event_name == 'schedule' || inputs.test_categories == 'all' || inputs.test_categories == 'inductor') }}
     runs-on: linux.rhel96
     timeout-minutes: 1440
