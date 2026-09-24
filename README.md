@@ -9,12 +9,12 @@ pytorch/pytorch
   │
   ├─ PR events ──▶ repository_dispatch (via CRCR) ──▶ rhel96-build-test.yml [disabled]
   │
-  ├─ nightly branch ──▶ cron schedule ──▶ crcr-nightly.yml [active, CUDA]
+  ├─ nightly branch ──▶ cron schedule ──▶ crcr-nightly.yml [active, CUDA + CPU]
   │                                           │
   │                                           ├─ Extracts source main SHA from nightly commit
-  │                                           ├─ Builds PyTorch in RHEL 9.6 CUDA container
-  │                                           ├─ Runs delta-based test determination
-  │                                           └─ Executes categorized tests (cpu, inductor, sgpu, mgpu)
+  │                                           ├─ Builds CUDA and CPU images in parallel
+  │                                           ├─ Determines CPU and CUDA test lists independently
+  │                                           └─ Reports CPU and CUDA test stages to CRCR/HUD
   │
   └─ nightly SHA ──▶ workflow_dispatch ──▶ crcr-nightly-rocm.yml [manual, ROCm]
                                               │
@@ -22,11 +22,6 @@ pytorch/pytorch
                                               ├─ Runs sanity or critical ROCm tests
                                               └─ HUD/CRCR callbacks currently disabled (PUSH_TO_HUD=false)
 
-  └─ nightly SHA ──▶ workflow_dispatch ──▶ crcr-nightly-cpu.yml [manual, experimental]
-                                              │
-                                              ├─ Builds PyTorch in a CPU-only RHEL 9.6 container
-                                              ├─ Runs critical or sanity CPU tests on linux.rhel96-cpu
-                                              └─ Never reports experimental results to CRCR/HUD
 ```
 
 ## Platforms
@@ -35,7 +30,7 @@ pytorch/pytorch
 |--------|-----|-------------|--------|
 | `linux.rhel96` | RHEL 9.6 | CUDA | Active |
 | `linux.rhel96-rocm` | RHEL 9.6 | ROCm | Active (manual validation) |
-| `linux.rhel96-cpu` | RHEL 9.6 | CPU | Experimental manual validation |
+| `linux.rhel96-cpu` | RHEL 9.6 | CPU | Active nightly validation |
 
 ## Workflows
 
@@ -43,29 +38,35 @@ pytorch/pytorch
 
 Runs daily at 08:30 UTC via cron, or manually via `workflow_dispatch`.
 
-**Pipeline: `build → determine-tests → cpu-tests → inductor-tests → sgpu-tests → mgpu-tests`** (sequential)
+**Pipeline:** CPU and CUDA builds start in parallel. Their determination and test branches are independent:
+
+```text
+cpu-build → determine-cpu-tests → cpu-tests
+build → determine-cuda-tests → inductor-tests → sgpu-tests → mgpu-tests
+```
 
 #### Manual Dispatch
 
-The workflow can be triggered manually from the Actions tab with two optional inputs:
+The workflow can be triggered manually from the Actions tab.
 
 | Input | Description | Default |
 |-------|-------------|---------|
 | `sha` | pytorch/pytorch SHA to build against (leave empty for latest nightly) | _(empty = latest nightly)_ |
-| `test_categories` | Which test stages to run after build | `all` |
+| `run_scope` | CPU/CUDA build-only validation or its test pipeline | `all` |
+| `no_cache` | Force both image builds to use `podman --no-cache` | `false` |
+| `forward_to_hud` | Forward this manual run's results to HUD | `true` |
 
-**Test category options:**
+**Run scope options:**
 
 | Selection | What runs |
 |-----------|-----------|
-| `all` | Build + all test stages (same as cron) |
-| `cpu` | Build + determine-tests + CPU tests only |
-| `inductor` | Build + determine-tests + inductor tests only |
-| `sgpu` | Build + determine-tests + single-GPU tests only |
-| `mgpu` | Build + determine-tests + multi-GPU tests only |
-| `build-only` | Build only, skip all tests |
+| `all` | CPU and CUDA builds, then every CPU/CUDA test stage (same as cron) |
+| `cpu` | CPU build, CPU determination, and CPU tests |
+| `cuda` | CUDA build, CUDA determination, then the serial CUDA test chain |
+| `cpu-build-only` | CPU build only |
+| `cuda-build-only` | CUDA build only |
 
-Cron-triggered runs always execute all stages regardless of these inputs. The run title displays the selected category (e.g., `[Nightly] RHEL 9.6 @ manual [sgpu]`).
+Cron-triggered runs always execute all stages and forward results to HUD. Manual results are forwarded by default; deselect `forward_to_hud` to keep a validation run out of HUD. The run title displays a non-default scope.
 
 #### Build (`linux.rhel96`, 10h timeout)
 - Fetches the two most recent commits from `pytorch/pytorch`'s `nightly` branch
@@ -79,20 +80,25 @@ Cron-triggered runs always execute all stages regardless of these inputs. The ru
   ```
   Tag components: `rhel9_6` (OS), `nightly` (pipeline), `main` (PyTorch branch), `git<sha>` (commit), `cuda13_0` (CUDA version)
 
-#### Determine-tests (`linux.rhel96`, 10h timeout)
-- Computes the diff between the current and previous source SHAs
-- Runs `merge_test_results.py` inside the built container (heuristic + structural call graph analysis)
-- Validates discovered test names against `run_test.py`'s accepted test list
-- Excludes CUDA-only tests (e.g., `test_overrides`) from `cpu` and `inductor` categories
-- Outputs base64-encoded, categorized test lists (cpu, inductor, sgpu, mgpu)
-- Falls back to full test suite (from `test_config.py`) if delta produces no results
+#### CPU Build (`linux.rhel96-cpu`, 10h timeout)
 
-#### Test Jobs (`linux.rhel96`, 24h job timeout)
+- Starts in parallel with the CUDA build and uses `docker/Dockerfile.rhel9-cpu`.
+- Produces a CPU-only image verified with `torch.version.cuda is None`.
+- Pushes the independent tag `quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_cpu`.
+- A Quay upload failure is reported but does not fail the build job; downstream jobs reuse a local image when available.
+
+#### Test determination (`linux.rhel96-cpu` and `linux.rhel96`, 10h timeout)
+
+`determine-cpu-tests` and `determine-cuda-tests` run after their respective builds. Each uses `merge_test_results.py` inside its matching image for `delta` selection, validates discovered test names against `run_test.py`, and produces base64-encoded commands for its branch.
+
+`sanity`, `critical`, and `full` use the configured lists from `test_config.py`. `delta` merges affected commands with the category's critical suite; when no previous SHA or no usable affected command is available, it falls back to that critical suite.
+
+#### Test Jobs (up to 24h job timeout)
 
 | Job | Category | GPU Requirement | Per-command timeout | Runs After |
 |-----|----------|-----------------|---------------------|------------|
-| `cpu-tests` | CPU-only PyTorch tests | None | 2 hours | `determine-tests` |
-| `inductor-tests` | TorchInductor + Dynamo + Export | None | 2 hours | `cpu-tests` |
+| `cpu-tests` | CPU-only PyTorch tests | None | 2 hours | `determine-cpu-tests` |
+| `inductor-tests` | TorchInductor + Dynamo + Export | None | 2 hours | `determine-cuda-tests` |
 | `sgpu-tests` | Single-GPU tests | ≥ 1 GPU | 2 hours | `inductor-tests` |
 | `mgpu-tests` | Multi-GPU + distributed tests | ≥ 2 GPUs | 12 hours | `sgpu-tests` |
 
@@ -157,18 +163,6 @@ Shared behavior:
 - `CONTINUE_THROUGH_ERROR=True`; summaries report *completed with failures* (no hard job fail on suite failures)
 - **HUD/CRCR callbacks are disabled** (`PUSH_TO_HUD=false`) until the pipeline is manually validated
 
-### `crcr-nightly-cpu.yml` — RHEL 9.6 CPU Build & Test (Experimental)
-
-Triggered only via `workflow_dispatch` while CPU-only builds are being validated. It runs both jobs on `linux.rhel96-cpu`, builds `docker/Dockerfile.rhel9-cpu`, and runs the `critical` CPU list (the same baseline used by the CUDA nightly workflow) or the optional `sanity` list from `scripts/test_config.py` in the resulting `cpu_torch_build` environment.
-
-The workflow may publish an image only under the isolated tag:
-
-```
-quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_cpu_experimental
-```
-
-That tag cannot overwrite the CUDA nightly image. The upload is non-blocking, but is enabled by default so a separately scheduled CPU test job can restore the exact image. `no_cache` also defaults to `true`, so each validation run compiles a fresh image unless explicitly overridden. This workflow deliberately has no CRCR callback, so experimental build and test results never reach HUD.
-
 ### `rhel96-build-test.yml` — PR Build & Sanity Tests (Disabled)
 
 Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disabled (`.disabled` suffix) while the nightly workflow is being stabilized. Will be re-enabled once nightly results are consistently stable.
@@ -194,8 +188,9 @@ Each job in the nightly pipeline sends a `completed` callback to the PyTorch CRC
 
 | Job | HUD `job-name` |
 |-----|----------------|
-| build | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / build` |
-| cpu-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (cpu, linux.rhel96)` |
+| CUDA build | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / build` |
+| CPU build | `linux-rhel9.6-cpu-py3.12-x86_64 / build` |
+| CPU tests | `linux-rhel9.6-cpu-py3.12-x86_64 / test (cpu, linux.rhel96-cpu)` |
 | inductor-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)` |
 | sgpu-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96)` |
 | mgpu-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96)` |
