@@ -29,10 +29,10 @@ cmd_prepare() {
     esac
   done
 
-  # Cache home: roomy /mnt drive first (only vpcuser may enter — chmod 700
-  # below), falling back to the runner user's home if /mnt is not writable.
+  # Cache home: persistent Podman storage first (only vpcuser may enter — chmod
+  # 700 below), falling back to the runner user's home if it is not writable.
   # Override with SCCACHE_CACHE_ROOT in the environment if needed.
-  local CACHE_ROOT="${SCCACHE_CACHE_ROOT:-/mnt/sccache-cache}"
+  local CACHE_ROOT="${SCCACHE_CACHE_ROOT:-/mnt/podman_storage/sccache-cache}"
   if [ ! -d "${CACHE_ROOT}" ]; then
     if ! mkdir -p "${CACHE_ROOT}" 2>/dev/null; then
       echo "::warning::Cannot write ${CACHE_ROOT}, falling back to \$HOME" >&2
