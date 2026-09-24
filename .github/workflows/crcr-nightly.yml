@@ -26,9 +26,14 @@ on:
         required: false
         type: boolean
         default: false
+      forward_to_hud:
+        description: "Forward completed results to HUD (disable for manual debugging runs)"
+        required: false
+        type: boolean
+        default: true
 
 run-name: >-
-  [Nightly] RHEL 9.6 @ ${{ github.event_name == 'schedule' && 'cron' || inputs.sha && 'manual-' || 'manual' }}${{ inputs.sha && format(' ({0})', inputs.sha) || '' }}${{ inputs.test_categories && inputs.test_categories != 'all' && format(' [{0}]', inputs.test_categories) || '' }}
+  [Nightly] RHEL 9.6 @ ${{ github.event_name == 'schedule' && 'cron' || inputs.sha && 'manual-' || 'manual' }}${{ inputs.sha && format(' ({0})', inputs.sha) || '' }}${{ inputs.test_categories && inputs.test_categories != 'all' && format(' [{0}]', inputs.test_categories) || '' }}${{ github.event_name == 'workflow_dispatch' && !inputs.forward_to_hud && ' [HUD off]' || '' }}
 
 env:
   UPSTREAM_REPO: pytorch/pytorch
@@ -194,7 +199,7 @@ jobs:
           echo "| no_cache | \`${NO_CACHE}\` |" >> $GITHUB_STEP_SUMMARY
 
       - name: Report to CRCR
-        if: always() && job.status == 'success'
+        if: ${{ always() && job.status == 'success' && (github.event_name == 'schedule' || inputs.forward_to_hud) }}
         continue-on-error: true
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -486,7 +491,7 @@ jobs:
           fi
 
       - name: Report to CRCR
-        if: always()
+        if: ${{ always() && (github.event_name == 'schedule' || inputs.forward_to_hud) }}
         continue-on-error: true
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -618,7 +623,7 @@ jobs:
           fi
 
       - name: Report to CRCR
-        if: always()
+        if: ${{ always() && (github.event_name == 'schedule' || inputs.forward_to_hud) }}
         continue-on-error: true
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -769,7 +774,7 @@ jobs:
           fi
 
       - name: Report to CRCR
-        if: always() && steps.gpu_check.outputs.gpu_available == 'true'
+        if: ${{ always() && steps.gpu_check.outputs.gpu_available == 'true' && (github.event_name == 'schedule' || inputs.forward_to_hud) }}
         continue-on-error: true
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
@@ -929,7 +934,7 @@ jobs:
           fi
 
       - name: Report to CRCR
-        if: always() && steps.gpu_check.outputs.mgpu_available == 'true'
+        if: ${{ always() && steps.gpu_check.outputs.mgpu_available == 'true' && (github.event_name == 'schedule' || inputs.forward_to_hud) }}
         continue-on-error: true
         uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
         with:
