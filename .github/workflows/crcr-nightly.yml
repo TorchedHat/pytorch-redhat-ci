@@ -21,7 +21,7 @@ on:
           - cpu-build-only
           - cuda-build-only
       no_cache:
-        description: "Force podman --no-cache rebuild (sccache still applies to the CUDA build)"
+        description: "Force podman --no-cache rebuild for this manual run (sccache still applies to CUDA)"
         required: false
         type: boolean
         default: false
@@ -32,7 +32,7 @@ on:
         default: true
 
 run-name: >-
-  [Nightly] RHEL 9.6 @ ${{ github.event_name == 'schedule' && 'cron' || inputs.sha && 'manual-' || 'manual' }}${{ inputs.sha && format(' ({0})', inputs.sha) || '' }}${{ inputs.run_scope && inputs.run_scope != 'all' && format(' [{0}]', inputs.run_scope) || '' }}${{ github.event_name == 'workflow_dispatch' && !inputs.forward_to_hud && ' [HUD off]' || '' }}
+  [Nightly] RHEL 9.6 @ ${{ github.event_name == 'schedule' && 'cron' || inputs.sha && 'manual-' || 'manual' }}${{ inputs.sha && format(' ({0})', inputs.sha) || '' }}${{ inputs.run_scope && inputs.run_scope != 'all' && format(' [{0}]', inputs.run_scope) || '' }}${{ (github.event_name == 'schedule' || inputs.no_cache) && ' [no cache]' || '' }}${{ github.event_name == 'workflow_dispatch' && !inputs.forward_to_hud && ' [HUD off]' || '' }}
 
 env:
   UPSTREAM_REPO: pytorch/pytorch
@@ -140,7 +140,7 @@ jobs:
           PYTORCH_SHA: ${{ needs.resolve-source.outputs.sha }}
           SUBSCRIPTION_KEY: ${{ secrets.RHEL_SUBSCRIPTION_ACTIVATION_KEY }}
           SUBSCRIPTION_ORG: ${{ secrets.RHEL_SUBSCRIPTION_ORG_ID }}
-          NO_CACHE: ${{ inputs.no_cache }}
+          NO_CACHE: ${{ github.event_name == 'schedule' || inputs.no_cache }}
         run: |
           echo "$SUBSCRIPTION_KEY" > /tmp/sub_key.txt
           echo "$SUBSCRIPTION_ORG" > /tmp/sub_org.txt
@@ -189,7 +189,7 @@ jobs:
           QUAY_TAG: ${{ needs.resolve-source.outputs.cuda_quay_tag }}
           PYTORCH_SHA: ${{ needs.resolve-source.outputs.sha }}
           SCCACHE_CACHE_DIR: ${{ steps.sccache.outputs.cache_dir }}
-          NO_CACHE: ${{ inputs.no_cache }}
+          NO_CACHE: ${{ github.event_name == 'schedule' || inputs.no_cache }}
         run: |
           echo "## CRCR Nightly: RHEL 9.6 — Build" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -250,7 +250,7 @@ jobs:
           PYTORCH_SHA: ${{ needs.resolve-source.outputs.sha }}
           SUBSCRIPTION_KEY: ${{ secrets.RHEL_SUBSCRIPTION_ACTIVATION_KEY }}
           SUBSCRIPTION_ORG: ${{ secrets.RHEL_SUBSCRIPTION_ORG_ID }}
-          NO_CACHE: ${{ inputs.no_cache }}
+          NO_CACHE: ${{ github.event_name == 'schedule' || inputs.no_cache }}
         run: |
           umask 077
           KEY_FILE=$(mktemp)
@@ -320,7 +320,7 @@ jobs:
           QUAY_TAG: ${{ needs.resolve-source.outputs.cpu_quay_tag }}
           PYTORCH_SHA: ${{ needs.resolve-source.outputs.sha }}
           IMAGE_PUSHED: ${{ steps.image_publish.outputs.pushed }}
-          NO_CACHE: ${{ inputs.no_cache }}
+          NO_CACHE: ${{ github.event_name == 'schedule' || inputs.no_cache }}
         run: |
           echo "## CRCR Nightly: RHEL 9.6 — CPU Build" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
