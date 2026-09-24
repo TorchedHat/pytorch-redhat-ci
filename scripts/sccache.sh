@@ -29,8 +29,24 @@ cmd_prepare() {
     esac
   done
 
-  local SCCACHE_CACHE_DIR="$HOME/sccache-cache/crcr-rhel96/${SCCACHE_CACHE_VERSION}"
+  # Cache home: roomy /mnt drive first (only vpcuser may enter — chmod 700
+  # below), falling back to the runner user's home if /mnt is not writable.
+  # Override with SCCACHE_CACHE_ROOT in the environment if needed.
+  local CACHE_ROOT="${SCCACHE_CACHE_ROOT:-/mnt/sccache-cache}"
+  if [ ! -d "${CACHE_ROOT}" ]; then
+    if ! mkdir -p "${CACHE_ROOT}" 2>/dev/null; then
+      echo "::warning::Cannot write ${CACHE_ROOT}, falling back to \$HOME" >&2
+      CACHE_ROOT="$HOME/sccache-cache"
+    fi
+  fi
+  if [ ! -w "${CACHE_ROOT}" ]; then
+    echo "::warning::${CACHE_ROOT} not writable, falling back to \$HOME" >&2
+    CACHE_ROOT="$HOME/sccache-cache"
+  fi
+
+  local SCCACHE_CACHE_DIR="${CACHE_ROOT}/crcr-rhel96/${SCCACHE_CACHE_VERSION}"
   mkdir -p "${SCCACHE_CACHE_DIR}"
+  chmod 700 "${CACHE_ROOT}" "${SCCACHE_CACHE_DIR}"
 
   # TTL cleanup — remove entries older than N days
   if [ -n "${SCCACHE_MAX_AGE_DAYS}" ] && [ "${SCCACHE_MAX_AGE_DAYS}" -gt 0 ] 2>/dev/null; then
