@@ -226,9 +226,9 @@ jobs:
               ;;
           esac
           COMMANDS=$(python3 scripts/test_config.py cpu "${TIER_FLAG}" --commands-only)
-          printf '%s' "${COMMANDS}" | base64 -w 0 > /tmp/cpu_test_list.b64
+          echo "${COMMANDS}" | base64 -w 0 > /tmp/cpu_test_list.b64
           echo "commands_b64=$(cat /tmp/cpu_test_list.b64)" >> "$GITHUB_OUTPUT"
-          echo "count=$(printf '%s\\n' "${COMMANDS}" | sed '/^$/d' | wc -l)" >> "$GITHUB_OUTPUT"
+          echo "count=$(echo "${COMMANDS}" | sed '/^$/d' | wc -l)" >> "$GITHUB_OUTPUT"
 
       - name: Run CPU test suite
         id: cpu_run
@@ -236,7 +236,7 @@ jobs:
         env:
           TEST_LIST_B64: ${{ steps.tests.outputs.commands_b64 }}
         run: |
-          COMMANDS=$(printf '%s' "${TEST_LIST_B64}" | base64 -d)
+          COMMANDS=$(echo "${TEST_LIST_B64}" | base64 -d)
           if [ -z "${COMMANDS}" ]; then
             echo "passed=0" >> "$GITHUB_OUTPUT"
             echo "failed=0" >> "$GITHUB_OUTPUT"
@@ -244,7 +244,7 @@ jobs:
             exit 0
           fi
 
-          printf '%s\\n' "${COMMANDS}" > /tmp/cpu_test_commands.txt
+          echo "${COMMANDS}" > /tmp/cpu_test_commands.txt
           LOG=/tmp/cpu_test_output.log
           set +e
           podman run --rm \
@@ -254,10 +254,10 @@ jobs:
               source /miniconda/etc/profile.d/conda.sh && conda activate cpu_torch_build
               cd /pytorch
               PASSED=0; FAILED=0; ERRORS=""
-              while IFS= read -r cmd || [ -n "${cmd}" ]; do
+              while IFS= read -r cmd; do
                 [ -z "$cmd" ] && continue
                 echo "Running: $cmd"
-                printf "%s\\n" "$cmd" > /tmp/_run.sh
+                echo "$cmd" > /tmp/_run.sh
                 if timeout 7200 bash /tmp/_run.sh; then
                   PASSED=$((PASSED + 1))
                 else
