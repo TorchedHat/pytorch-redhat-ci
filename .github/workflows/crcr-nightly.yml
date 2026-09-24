@@ -347,7 +347,100 @@ jobs:
           event-type: nightly
           job-name: "linux-rhel9.6-cpu-py3.12-x86_64 / build"
 
-  determine-tests:
+  determine-cpu-tests:
+    name: "linux-rhel9.6-cpu-py3.12-x86_64 / determine-tests"
+    needs: cpu-build
+    if: ${{ !cancelled() && needs.cpu-build.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cpu') }}
+    runs-on: linux.rhel96-cpu
+    timeout-minutes: 600
+    outputs:
+      cpu_tests: ${{ steps.resolve.outputs.cpu_tests }}
+      cpu_count: ${{ steps.resolve.outputs.count }}
+      mode: ${{ steps.resolve.outputs.mode }}
+    env:
+      IMAGE_TAG: ${{ needs.cpu-build.outputs.image_tag }}
+      QUAY_TAG: ${{ needs.cpu-build.outputs.quay_tag }}
+      IMAGE_PUSHED: ${{ needs.cpu-build.outputs.image_pushed }}
+      PYTORCH_SHA: ${{ needs.cpu-build.outputs.sha }}
+      PREV_SHA: ${{ needs.cpu-build.outputs.prev_sha }}
+    steps:
+      - name: Checkout CI repo
+        uses: actions/checkout@v4
+
+      - name: Restore CPU image when needed
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+        run: |
+          if podman image exists "${IMAGE_TAG}"; then
+            exit 0
+          fi
+          if [ "${IMAGE_PUSHED}" != "true" ]; then
+            echo "::error::The CPU image is not local and the Quay upload failed. Re-run after Quay is available."
+            exit 1
+          fi
+          echo "${QUAY_PASSWORD}" | podman login quay.io -u "${QUAY_USERNAME}" --password-stdin
+          podman pull "${QUAY_TAG}"
+          podman tag "${QUAY_TAG}" "${IMAGE_TAG}"
+
+      - name: Resolve CPU test list
+        id: resolve
+        run: |
+          MODE="configured"
+          COMMANDS=""
+          if [ "${TEST_TIER}" = "delta" ] && [ -n "${PREV_SHA}" ]; then
+            echo "Delta mode: comparing ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
+            DELTA_TESTS=$(podman run --rm -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c "
+              source /miniconda/etc/profile.d/conda.sh && conda activate cpu_torch_build
+              cd /pytorch
+              VALID_TESTS=\$(python test/run_test.py -i __probe__ 2>&1 | grep 'invalid choice' | sed \"s/.*choose from //\" | tr -d \"')'\" | tr ',' '\n' | sed 's/^ //' || true)
+              RAW=\$(python /ci_scripts/merge_test_results.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category cpu --commands-only 2>/dev/null) || true
+              while IFS= read -r line; do
+                [ -z \"\$line\" ] && continue
+                TEST_NAME=\$(echo \"\$line\" | sed -n 's/.*-i \([^ ]*\).*/\1/p')
+                if [ -z \"\$TEST_NAME\" ] || echo \"\$VALID_TESTS\" | grep -qxF \"\$TEST_NAME\"; then
+                  echo \"\$line\"
+                fi
+              done <<< \"\$RAW\"
+            " 2>/dev/null || true)
+            DELTA_TESTS=$(echo "${DELTA_TESTS}" | grep -v '\-i test_overrides' | sed '/^$/d')
+            if [ -n "${DELTA_TESTS}" ]; then
+              CRITICAL=$(python3 scripts/test_config.py cpu --critical --commands-only)
+              COMMANDS=$(printf '%s\n%s' "${CRITICAL}" "${DELTA_TESTS}" | awk '!seen[$0]++' | sed '/^$/d')
+              MODE="delta"
+            fi
+          fi
+
+          case "${TEST_TIER}" in
+            sanity) TIER_FLAG=--sanity ;;
+            critical) TIER_FLAG=--critical ;;
+            full) TIER_FLAG="" ;;
+            delta) TIER_FLAG=--critical ;;
+            *)
+              echo "::error::Unsupported CPU test tier: ${TEST_TIER}"
+              exit 1
+              ;;
+          esac
+          if [ -z "${COMMANDS}" ]; then
+            COMMANDS=$(python3 scripts/test_config.py cpu ${TIER_FLAG} --commands-only)
+          fi
+          echo "cpu_tests=$(echo "${COMMANDS}" | base64 -w0)" >> "$GITHUB_OUTPUT"
+          echo "count=$(echo "${COMMANDS}" | sed '/^$/d' | wc -l)" >> "$GITHUB_OUTPUT"
+          echo "mode=${MODE}" >> "$GITHUB_OUTPUT"
+
+      - name: Determination summary
+        run: |
+          echo "## CRCR Nightly: CPU Test Determination" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Mode | \`${{ steps.resolve.outputs.mode }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Strategy | heuristic + structural (union) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Current SHA | \`${PYTORCH_SHA:0:10}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Previous SHA | \`${PREV_SHA:0:10}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| CPU tests | ${{ steps.resolve.outputs.count }} |" >> $GITHUB_STEP_SUMMARY
+
+  determine-cuda-tests:
     name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / determine-tests"
     needs: build
     if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cuda') }}
@@ -483,8 +576,8 @@ jobs:
 
   cpu-tests:
     name: "linux-rhel9.6-cpu-py3.12-x86_64 / test (cpu, linux.rhel96-cpu)"
-    needs: cpu-build
-    if: ${{ !cancelled() && needs.cpu-build.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cpu') }}
+    needs: [cpu-build, determine-cpu-tests]
+    if: ${{ !cancelled() && needs.cpu-build.result == 'success' && needs.determine-cpu-tests.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cpu') }}
     runs-on: linux.rhel96-cpu
     timeout-minutes: 1440
     env:
@@ -492,7 +585,6 @@ jobs:
       QUAY_TAG: ${{ needs.cpu-build.outputs.quay_tag }}
       IMAGE_PUSHED: ${{ needs.cpu-build.outputs.image_pushed }}
       PYTORCH_SHA: ${{ needs.cpu-build.outputs.sha }}
-      PREV_SHA: ${{ needs.cpu-build.outputs.prev_sha }}
     steps:
       - name: Checkout CI repo
         uses: actions/checkout@v4
@@ -539,53 +631,11 @@ jobs:
           "
           '
 
-      - name: Resolve CPU test list
-        id: tests
-        run: |
-          COMMANDS=""
-          if [ "${TEST_TIER}" = "delta" ] && [ -n "${PREV_SHA}" ]; then
-            echo "Delta mode: comparing ${PREV_SHA:0:10}..${PYTORCH_SHA:0:10}"
-            DELTA_TESTS=$(podman run --rm -v "$(pwd)/scripts:/ci_scripts:ro" "${IMAGE_TAG}" bash -c "
-              source /miniconda/etc/profile.d/conda.sh && conda activate cpu_torch_build
-              cd /pytorch
-              VALID_TESTS=\$(python test/run_test.py -i __probe__ 2>&1 | grep 'invalid choice' | sed \"s/.*choose from //\" | tr -d \")'\" | tr ',' '\n' | sed 's/^ //' || true)
-              RAW=\$(python /ci_scripts/merge_test_results.py '${PREV_SHA}' '${PYTORCH_SHA}' --pytorch-dir /pytorch --category cpu --commands-only 2>/dev/null) || true
-              while IFS= read -r line; do
-                [ -z \"\$line\" ] && continue
-                TEST_NAME=\$(echo \"\$line\" | sed -n 's/.*-i \([^ ]*\).*/\1/p')
-                if [ -z \"\$TEST_NAME\" ] || echo \"\$VALID_TESTS\" | grep -qxF \"\$TEST_NAME\"; then
-                  echo \"\$line\"
-                fi
-              done <<< \"\$RAW\"
-            " 2>/dev/null || true)
-            DELTA_TESTS=$(echo "${DELTA_TESTS}" | grep -v '\-i test_overrides' | sed '/^$/d')
-            if [ -n "${DELTA_TESTS}" ]; then
-              CRITICAL=$(python3 scripts/test_config.py cpu --critical --commands-only)
-              COMMANDS=$(printf '%s\n%s' "${CRITICAL}" "${DELTA_TESTS}" | awk '!seen[$0]++' | sed '/^$/d')
-            fi
-          fi
-
-          case "${TEST_TIER}" in
-            sanity) TIER_FLAG=--sanity ;;
-            critical) TIER_FLAG=--critical ;;
-            full) TIER_FLAG="" ;;
-            delta) TIER_FLAG=--critical ;;
-            *)
-              echo "::error::Unsupported CPU test tier: ${TEST_TIER}"
-              exit 1
-              ;;
-          esac
-          if [ -z "${COMMANDS}" ]; then
-            COMMANDS=$(python3 scripts/test_config.py cpu ${TIER_FLAG} --commands-only)
-          fi
-          echo "commands_b64=$(echo "${COMMANDS}" | base64 -w0)" >> "$GITHUB_OUTPUT"
-          echo "count=$(echo "${COMMANDS}" | sed '/^$/d' | wc -l)" >> "$GITHUB_OUTPUT"
-
       - name: Run CPU test suite
         id: cpu_run
         continue-on-error: true
         env:
-          TEST_LIST_B64: ${{ steps.tests.outputs.commands_b64 }}
+          TEST_LIST_B64: ${{ needs.determine-cpu-tests.outputs.cpu_tests }}
         run: |
           COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
           if [ -z "$COMMANDS" ]; then
@@ -667,7 +717,7 @@ jobs:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| Test tier | \`${TEST_TIER}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Commands | ${{ steps.tests.outputs.count || '0' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commands | ${{ needs.determine-cpu-tests.outputs.cpu_count || '0' }} |" >> $GITHUB_STEP_SUMMARY
           FAILED="${{ steps.cpu_run.outputs.failed || '0' }}"
           echo "| Passed | ${{ steps.cpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
@@ -710,8 +760,8 @@ jobs:
 
   inductor-tests:
     name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)"
-    needs: [build, determine-tests]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.determine-tests.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cuda') }}
+    needs: [build, determine-cuda-tests]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.determine-cuda-tests.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cuda') }}
     runs-on: linux.rhel96
     timeout-minutes: 1440
     env:
@@ -729,7 +779,7 @@ jobs:
         id: inductor_run
         continue-on-error: true
         env:
-          TEST_LIST_B64: ${{ needs.determine-tests.outputs.inductor_tests }}
+          TEST_LIST_B64: ${{ needs.determine-cuda-tests.outputs.inductor_tests }}
         run: |
           COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
           if [ -z "$COMMANDS" ]; then
@@ -842,8 +892,8 @@ jobs:
 
   sgpu-tests:
     name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96)"
-    needs: [build, determine-tests, inductor-tests]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.determine-tests.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cuda') }}
+    needs: [build, determine-cuda-tests, inductor-tests]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.determine-cuda-tests.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cuda') }}
     runs-on: linux.rhel96
     timeout-minutes: 1440
     env:
@@ -877,7 +927,7 @@ jobs:
         continue-on-error: true
         if: steps.gpu_check.outputs.gpu_available == 'true'
         env:
-          TEST_LIST_B64: ${{ needs.determine-tests.outputs.sgpu_tests }}
+          TEST_LIST_B64: ${{ needs.determine-cuda-tests.outputs.sgpu_tests }}
         run: |
           COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
           if [ -z "$COMMANDS" ]; then
@@ -993,8 +1043,8 @@ jobs:
 
   mgpu-tests:
     name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96)"
-    needs: [build, determine-tests, sgpu-tests]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.determine-tests.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cuda') }}
+    needs: [build, determine-cuda-tests, sgpu-tests]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.determine-cuda-tests.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cuda') }}
     runs-on: linux.rhel96
     timeout-minutes: 1440
     env:
@@ -1033,7 +1083,7 @@ jobs:
         continue-on-error: true
         if: steps.gpu_check.outputs.mgpu_available == 'true'
         env:
-          TEST_LIST_B64: ${{ needs.determine-tests.outputs.mgpu_tests }}
+          TEST_LIST_B64: ${{ needs.determine-cuda-tests.outputs.mgpu_tests }}
         run: |
           COMMANDS=$(echo "$TEST_LIST_B64" | base64 -d)
           if [ -z "$COMMANDS" ]; then
