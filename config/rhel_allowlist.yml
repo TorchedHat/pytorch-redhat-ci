@@ -3,8 +3,6 @@
 allowed_repos:
   - repo: TorchedHat/pytorch-redhat-ci
     forward_to_hud: true
-  - repo: subinz1/CRCR
-    forward_to_hud: false
   - repo: torch-spyre/torch-spyre
     forward_to_hud: true
   # - repo: partner-org/partner-repo
