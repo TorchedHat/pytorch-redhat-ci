@@ -1,0 +1,362 @@
+# Isolated TTO critical-SGPU path. Does not replace production
+# crcr-nightly.yml sgpu (sequential). HUD off by default.
+name: "CRCR: RHEL 9.6 critical SGPU via TTO"
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "pytorch/pytorch SHA to build against (leave empty for latest nightly)"
+        required: false
+        default: ""
+      no_cache:
+        description: "Force podman --no-cache rebuild"
+        required: false
+        type: boolean
+        default: false
+      forward_to_hud:
+        description: "Forward results to HUD (keep off while validating TTO)"
+        required: false
+        type: boolean
+        default: false
+
+run-name: >-
+  [TTO SGPU] RHEL 9.6 @ ${{ inputs.sha && format('manual ({0})', inputs.sha) || 'manual' }}${{ inputs.no_cache && ' [no cache]' || '' }}${{ inputs.forward_to_hud && '' || ' [HUD off]' }}
+
+env:
+  UPSTREAM_REPO: pytorch/pytorch
+  NIGHTLY_BRANCH: nightly
+  QUAY_REGISTRY: quay.io/aipcc/pytorch
+  CUDA_VERSION: "13_0"
+  # torch-test-optimizer#33 --modules-file (pin SHA, not a moving branch)
+  TTO_GIT_REF: ed1dc34c9d996e67176f7035696e9efdb7a8c16f
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  resolve-source:
+    name: "CRCR TTO / resolve source"
+    runs-on: linux.rhel96
+    timeout-minutes: 15
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+      cuda_image_tag: ${{ steps.sha.outputs.cuda_image_tag }}
+      cuda_quay_tag: ${{ steps.sha.outputs.cuda_quay_tag }}
+    steps:
+      - name: Fetch source SHAs from nightly branch
+        id: sha
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          if [ -n "$INPUT_SHA" ]; then
+            echo "Using manually provided SHA: $INPUT_SHA"
+            SOURCE_SHA="$INPUT_SHA"
+          else
+            NIGHTLY_COMMITS=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/commits?sha=${NIGHTLY_BRANCH}&per_page=2" | jq -r '.[].sha')
+            NIGHTLY_SHA=$(echo "$NIGHTLY_COMMITS" | head -1)
+            if [ -z "$NIGHTLY_SHA" ]; then
+              echo "::error::Could not resolve HEAD for ${UPSTREAM_REPO}/${NIGHTLY_BRANCH}"
+              exit 1
+            fi
+            COMMIT_MSG=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/commits/${NIGHTLY_SHA}" | jq -r '.commit.message')
+            SOURCE_SHA=$(echo "$COMMIT_MSG" | grep -oP '\(([a-f0-9]{40})\)' | tr -d '()')
+            if [ -z "$SOURCE_SHA" ]; then
+              echo "::error::Could not extract source SHA from latest nightly commit"
+              exit 1
+            fi
+          fi
+          SHORT_SHA=${SOURCE_SHA:0:7}
+          echo "Source SHA: $SOURCE_SHA"
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "cuda_image_tag=rhel9-pytorch-nightly:${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "cuda_quay_tag=${QUAY_REGISTRY}:rhel9_6_pytorch_nightly_main_git${SHORT_SHA}_cuda${CUDA_VERSION}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / build (tto-sgpu)"
+    needs: resolve-source
+    runs-on: linux.rhel96
+    timeout-minutes: 600
+    outputs:
+      sha: ${{ needs.resolve-source.outputs.sha }}
+      image_tag: ${{ needs.resolve-source.outputs.cuda_image_tag }}
+    steps:
+      - name: Checkout CI repo
+        uses: actions/checkout@v4
+
+      - name: Log in to Quay.io
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+        run: |
+          echo "$QUAY_PASSWORD" | podman login quay.io -u "$QUAY_USERNAME" --password-stdin
+
+      - name: Set up sccache
+        id: sccache
+        run: scripts/sccache.sh prepare
+
+      - name: Build container image
+        env:
+          IMAGE_TAG: ${{ needs.resolve-source.outputs.cuda_image_tag }}
+          PYTORCH_SHA: ${{ needs.resolve-source.outputs.sha }}
+          SUBSCRIPTION_KEY: ${{ secrets.RHEL_SUBSCRIPTION_ACTIVATION_KEY }}
+          SUBSCRIPTION_ORG: ${{ secrets.RHEL_SUBSCRIPTION_ORG_ID }}
+          NO_CACHE: ${{ inputs.no_cache }}
+        run: |
+          echo "$SUBSCRIPTION_KEY" > /tmp/sub_key.txt
+          echo "$SUBSCRIPTION_ORG" > /tmp/sub_org.txt
+          NO_CACHE_FLAG=""
+          if [ "${NO_CACHE}" = "true" ]; then
+            echo "Building with --no-cache (forced full rebuild)"
+            NO_CACHE_FLAG="--no-cache"
+          fi
+          podman build \
+            --file docker/Dockerfile.rhel9 \
+            --build-arg COMMIT_HASH="${PYTORCH_SHA}" \
+            --build-arg ENABLE_SUBSCRIPTION=true \
+            --build-arg RHEL_OS_VERSION=9.6 \
+            --secret id=subscription_key,src=/tmp/sub_key.txt \
+            --secret id=subscription_org,src=/tmp/sub_org.txt \
+            ${{ steps.sccache.outputs.volume_arg }} \
+            ${NO_CACHE_FLAG} \
+            --tag "${IMAGE_TAG}" \
+            .
+          rm -f /tmp/sub_key.txt /tmp/sub_org.txt
+
+      - name: sccache build statistics
+        if: always() && steps.sccache.outputs.volume_arg != ''
+        run: |
+          scripts/sccache.sh stats \
+            --image "${{ needs.resolve-source.outputs.cuda_image_tag }}" \
+            --cache-dir "${{ steps.sccache.outputs.cache_dir }}"
+
+      - name: Tag and push to Quay.io
+        continue-on-error: true
+        env:
+          IMAGE_TAG: ${{ needs.resolve-source.outputs.cuda_image_tag }}
+          QUAY_TAG: ${{ needs.resolve-source.outputs.cuda_quay_tag }}
+        run: |
+          podman tag "${IMAGE_TAG}" "${QUAY_TAG}"
+          podman push "${QUAY_TAG}"
+          echo "Pushed: ${QUAY_TAG}"
+
+      - name: Report to CRCR
+        if: ${{ always() && job.status == 'success' && inputs.forward_to_hud }}
+        continue-on-error: true
+        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
+        with:
+          status: completed
+          conclusion: ${{ job.status }}
+          delivery-id: ${{ needs.resolve-source.outputs.sha }}
+          event-type: nightly
+          job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / build (tto-sgpu)"
+
+  sgpu-tto:
+    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (sgpu-tto, linux.rhel96)"
+    needs: [resolve-source, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: linux.rhel96
+    timeout-minutes: 1440
+    env:
+      IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+      PYTORCH_SHA: ${{ needs.build.outputs.sha }}
+    steps:
+      - name: Check GPU availability
+        id: gpu_check
+        run: |
+          if nvidia-smi &>/dev/null; then
+            GPU_COUNT=$(nvidia-smi -L 2>/dev/null | wc -l)
+            echo "gpu_available=true" >> "$GITHUB_OUTPUT"
+            echo "gpu_count=$GPU_COUNT" >> "$GITHUB_OUTPUT"
+            nvidia-smi -L
+          else
+            echo "gpu_available=false" >> "$GITHUB_OUTPUT"
+            echo "gpu_count=0" >> "$GITHUB_OUTPUT"
+            echo "::error::No GPU detected — TTO SGPU validation requires a GPU runner"
+            exit 1
+          fi
+
+      - name: Checkout CI repo
+        uses: actions/checkout@v4
+
+      - name: Checkout torch-test-optimizer
+        uses: actions/checkout@v4
+        with:
+          repository: TorchedHat/torch-test-optimizer
+          ref: ${{ env.TTO_GIT_REF }}
+          path: torch-test-optimizer
+          token: ${{ secrets.TTO_GITHUB_TOKEN || github.token }}
+
+      - name: Verify image exists
+        run: |
+          if ! podman image exists "${IMAGE_TAG}"; then
+            echo "::error::Image ${IMAGE_TAG} not found in local podman store"
+            exit 1
+          fi
+
+      - name: Run critical SGPU via TTO
+        id: sgpu_run
+        run: |
+          set -o pipefail
+          MODULES_JSON="$(pwd)/config/critical_sgpu.json"
+          TTO_SRC="$(pwd)/torch-test-optimizer"
+          if [ ! -f "$MODULES_JSON" ]; then
+            echo "::error::Missing ${MODULES_JSON}"
+            exit 1
+          fi
+          if [ ! -d "$TTO_SRC" ]; then
+            echo "::error::Missing ${TTO_SRC} (torch-test-optimizer checkout failed)"
+            exit 1
+          fi
+          echo "Using modules file:"
+          cat "$MODULES_JSON"
+          echo "TTO at $(git -C "$TTO_SRC" rev-parse HEAD) (pin ${TTO_GIT_REF})"
+
+          RUN_DIR=$(mktemp -d /tmp/tto-sgpu-critical.XXXXXX)
+          LOG="${RUN_DIR}/sgpu_test_output.log"
+          echo "Artifacts directory: ${RUN_DIR}"
+
+          podman run --rm --device nvidia.com/gpu=all \
+            --pids-limit=0 \
+            --ipc=host \
+            -e CONTINUE_THROUGH_ERROR=True \
+            -v "${MODULES_JSON}:/ci/critical_sgpu.json:ro" \
+            -v "${TTO_SRC}:/opt/torch-test-optimizer:ro" \
+            -v "${RUN_DIR}:/opt/tto-logs:z" \
+            "${IMAGE_TAG}" bash -c '
+            source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
+            pip install -e /opt/torch-test-optimizer
+            cd /pytorch
+            set +e
+            tto --pytorch-root /pytorch \
+              --modules-file /ci/critical_sgpu.json \
+              --log-dir /opt/tto-logs \
+              --summary-json /opt/tto-logs/summary.json \
+              --merged-report /opt/tto-logs/merged-report.xml
+            RC=$?
+            echo "TTO_EXIT=${RC}"
+            exit 0
+          ' 2>&1 | tee "$LOG"
+          PODMAN_RC=${PIPESTATUS[0]}
+
+          SUMMARY="${RUN_DIR}/summary.json"
+          TTO_EXIT=$(grep '^TTO_EXIT=' "$LOG" | tail -1 | cut -d= -f2 || true)
+          PASSED=0
+          FAILED=1
+          TOTAL=0
+          ERRORS=""
+
+          fail_infra() {
+            FAILED=1
+            ERRORS="$1"
+            echo "::error::$1"
+          }
+
+          if [ -z "$TTO_EXIT" ]; then
+            fail_infra "Missing TTO_EXIT marker (podman rc=${PODMAN_RC}). Treating as infrastructure failure."
+          elif [ ! -f "$SUMMARY" ]; then
+            fail_infra "Missing summary.json after TTO_EXIT=${TTO_EXIT}. Treating as infrastructure failure."
+          else
+            PARSE=$(python3 - "$SUMMARY" <<'PY'
+import json, sys
+path = sys.argv[1]
+try:
+    d = json.load(open(path))
+except Exception as e:
+    print("PARSE_ERROR", e)
+    sys.exit(2)
+passed = int(d.get("passed", 0) or 0)
+failed = int(d.get("failed", 0) or 0)
+errors = int(d.get("errors", 0) or 0)
+total = int(d.get("total_tests", passed + failed + errors + int(d.get("skipped", 0) or 0)))
+print(f"PASSED={passed}")
+print(f"XML_FAILED={failed + errors}")
+print(f"TOTAL={total}")
+for t in (d.get("failed_tests") or [])[:30]:
+    print("FAIL_LINE: %s.%s" % (t.get("classname", ""), t.get("name", "")))
+PY
+            )
+            PARSE_RC=$?
+            if [ "$PARSE_RC" -ne 0 ] || echo "$PARSE" | grep -q '^PARSE_ERROR'; then
+              fail_infra "Unparseable summary.json: ${PARSE}"
+            else
+              PASSED=$(echo "$PARSE" | grep '^PASSED=' | tail -1 | cut -d= -f2)
+              XML_FAILED=$(echo "$PARSE" | grep '^XML_FAILED=' | tail -1 | cut -d= -f2)
+              TOTAL=$(echo "$PARSE" | grep '^TOTAL=' | tail -1 | cut -d= -f2)
+              ERRORS=$(echo "$PARSE" | grep '^FAIL_LINE:' | sed 's/^FAIL_LINE:/  FAIL:/' || true)
+              if [ "${TOTAL:-0}" -eq 0 ]; then
+                fail_infra "Zero tests in summary.json (TTO_EXIT=${TTO_EXIT}). Treating as infrastructure failure."
+              elif [ "$TTO_EXIT" != "0" ] || [ "${XML_FAILED:-0}" -gt 0 ]; then
+                FAILED=$(( XML_FAILED > 0 ? XML_FAILED : 1 ))
+                ERRORS="${ERRORS}"$'\n'"  FAIL: tto exited with code ${TTO_EXIT}"
+              else
+                FAILED=0
+              fi
+            fi
+          fi
+
+          echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
+          echo "failed=${FAILED:-1}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'errors<<ERRORS_EOF'
+            echo "$ERRORS"
+            echo 'ERRORS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$FAILED" != "0" ]; then
+            exit 1
+          fi
+
+      - name: Test summary
+        if: always()
+        env:
+          ERRORS_OUTPUT: ${{ steps.sgpu_run.outputs.errors }}
+          PASSED_OUT: ${{ steps.sgpu_run.outputs.passed || '—' }}
+          FAILED_OUT: ${{ steps.sgpu_run.outputs.failed || '1' }}
+        run: |
+          echo "## CRCR TTO: RHEL 9.6 — Critical Single-GPU Tests" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Property | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| GPUs | ${{ steps.gpu_check.outputs.gpu_count }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Runner | \`tto --modules-file config/critical_sgpu.json\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| TTO pin | \`${TTO_GIT_REF}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Passed | ${PASSED_OUT} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Failed | ${FAILED_OUT} |" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${FAILED_OUT}" -gt 0 ] 2>/dev/null; then
+            echo "| Result | \`failure\` |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "| Result | \`success\` |" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -n "$ERRORS_OUTPUT" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Failures" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "$ERRORS_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Determine conclusion
+        id: conclusion
+        if: always()
+        env:
+          FAILED: ${{ steps.sgpu_run.outputs.failed }}
+        run: |
+          if [ -z "$FAILED" ] || [ "$FAILED" != "0" ]; then
+            echo "value=failure" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=success" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report to CRCR
+        if: ${{ always() && steps.gpu_check.outputs.gpu_available == 'true' && inputs.forward_to_hud }}
+        continue-on-error: true
+        uses: pytorch/test-infra/.github/actions/cross-repo-ci-relay-callback@main
+        with:
+          status: completed
+          conclusion: ${{ steps.conclusion.outputs.value }}
+          delivery-id: ${{ needs.build.outputs.sha }}
+          event-type: nightly
+          job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (sgpu-tto, linux.rhel96)"

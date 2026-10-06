@@ -899,8 +899,6 @@ jobs:
     env:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
       PYTORCH_SHA: ${{ needs.build.outputs.sha }}
-      # Pin until TorchedHat/torch-test-optimizer --modules-file lands on main
-      TTO_GIT_REF: feature/modules-file-critical-json
     steps:
       - name: Check GPU availability
         id: gpu_check
@@ -916,21 +914,6 @@ jobs:
             echo "No GPU detected — skipping single-GPU tests"
           fi
 
-      - name: Checkout CI repo
-        if: steps.gpu_check.outputs.gpu_available == 'true'
-        uses: actions/checkout@v4
-
-      - name: Checkout torch-test-optimizer
-        if: steps.gpu_check.outputs.gpu_available == 'true' && env.TEST_TIER == 'critical'
-        uses: actions/checkout@v4
-        with:
-          repository: TorchedHat/torch-test-optimizer
-          ref: ${{ env.TTO_GIT_REF }}
-          path: torch-test-optimizer
-          # Private repo: set repo secret TTO_GITHUB_TOKEN (read access) if
-          # the default GITHUB_TOKEN cannot clone across TorchedHat repos.
-          token: ${{ secrets.TTO_GITHUB_TOKEN || github.token }}
-
       - name: Verify image exists
         if: steps.gpu_check.outputs.gpu_available == 'true'
         run: |
@@ -939,86 +922,10 @@ jobs:
             exit 1
           fi
 
-      - name: Run single-GPU critical suite via TTO
+      - name: Run single-GPU test suite
         id: sgpu_run
         continue-on-error: true
-        if: steps.gpu_check.outputs.gpu_available == 'true' && env.TEST_TIER == 'critical'
-        run: |
-          MODULES_JSON="$(pwd)/config/critical_sgpu.json"
-          TTO_SRC="$(pwd)/torch-test-optimizer"
-          if [ ! -f "$MODULES_JSON" ]; then
-            echo "::error::Missing ${MODULES_JSON}"
-            exit 1
-          fi
-          if [ ! -d "$TTO_SRC" ]; then
-            echo "::error::Missing ${TTO_SRC} (torch-test-optimizer checkout failed)"
-            exit 1
-          fi
-          echo "Using modules file:"
-          cat "$MODULES_JSON"
-          echo "TTO at $(git -C "$TTO_SRC" rev-parse --short HEAD) (${TTO_GIT_REF})"
-
-          mkdir -p /tmp/tto-sgpu-critical
-          LOG=/tmp/sgpu_test_output.log
-          # --pids-limit=0 required so TTO shard subprocesses are not killed
-          podman run --rm --device nvidia.com/gpu=all \
-            --pids-limit=0 \
-            --ipc=host \
-            -e CONTINUE_THROUGH_ERROR=True \
-            -v "${MODULES_JSON}:/ci/critical_sgpu.json:ro" \
-            -v "${TTO_SRC}:/opt/torch-test-optimizer:ro" \
-            -v /tmp/tto-sgpu-critical:/opt/tto-logs:z \
-            "${IMAGE_TAG}" bash -c '
-            source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
-            pip install -e /opt/torch-test-optimizer
-            cd /pytorch
-            set +e
-            tto --pytorch-root /pytorch \
-              --modules-file /ci/critical_sgpu.json \
-              --log-dir /opt/tto-logs \
-              --summary-json /opt/tto-logs/summary.json \
-              --merged-report /opt/tto-logs/merged-report.xml
-            RC=$?
-            echo "TTO_EXIT=${RC}"
-            exit 0
-          ' 2>&1 | tee "$LOG" || true
-
-          TTO_EXIT=$(grep '^TTO_EXIT=' "$LOG" | tail -1 | cut -d= -f2)
-          PASSED=0
-          FAILED=0
-          ERRORS=""
-          if [ -f /tmp/tto-sgpu-critical/summary.json ]; then
-            PASSED=$(python3 -c 'import json; print(json.load(open("/tmp/tto-sgpu-critical/summary.json")).get("passed", 0))')
-            FAILED=$(python3 -c 'import json; d=json.load(open("/tmp/tto-sgpu-critical/summary.json")); print(int(d.get("failed", 0)) + int(d.get("errors", 0)))')
-            ERRORS=$(python3 -c '
-import json
-d = json.load(open("/tmp/tto-sgpu-critical/summary.json"))
-for t in d.get("failed_tests", [])[:30]:
-    print("  FAIL: %s.%s" % (t.get("classname", ""), t.get("name", "")))
-')
-          elif [ -n "$TTO_EXIT" ] && [ "$TTO_EXIT" != "0" ]; then
-            FAILED=1
-            ERRORS="  FAIL: tto exited with code ${TTO_EXIT} (no summary.json)"
-          fi
-
-          # Treat non-zero TTO exit as failure even if XML counts look clean
-          if [ -n "$TTO_EXIT" ] && [ "$TTO_EXIT" != "0" ] && [ "$FAILED" = "0" ]; then
-            FAILED=1
-            ERRORS="${ERRORS}"$'\n'"  FAIL: tto exited with code ${TTO_EXIT}"
-          fi
-
-          echo "passed=${PASSED:-0}" >> "$GITHUB_OUTPUT"
-          echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
-          {
-            echo 'errors<<ERRORS_EOF'
-            echo "$ERRORS"
-            echo 'ERRORS_EOF'
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Run single-GPU test suite (sequential fallback)
-        id: sgpu_run_seq
-        continue-on-error: true
-        if: steps.gpu_check.outputs.gpu_available == 'true' && env.TEST_TIER != 'critical'
+        if: steps.gpu_check.outputs.gpu_available == 'true'
         env:
           TEST_LIST_B64: ${{ needs.determine-cuda-tests.outputs.sgpu_tests }}
         run: |
@@ -1032,7 +939,7 @@ for t in d.get("failed_tests", [])[:30]:
           fi
 
           CMD_COUNT=$(echo "$COMMANDS" | wc -l)
-          echo "Running ${CMD_COUNT} single-GPU test command(s) (sequential fallback, TEST_TIER=${TEST_TIER})"
+          echo "Running ${CMD_COUNT} single-GPU test command(s)"
           LOG=/tmp/sgpu_test_output.log
           echo "$COMMANDS" > /tmp/sgpu_test_commands.txt
           podman run --rm --device nvidia.com/gpu=all \
@@ -1084,9 +991,7 @@ for t in d.get("failed_tests", [])[:30]:
       - name: Test summary
         if: always()
         env:
-          ERRORS_OUTPUT: ${{ steps.sgpu_run.outputs.errors || steps.sgpu_run_seq.outputs.errors }}
-          PASSED_OUT: ${{ steps.sgpu_run.outputs.passed || steps.sgpu_run_seq.outputs.passed || '—' }}
-          FAILED_OUT: ${{ steps.sgpu_run.outputs.failed || steps.sgpu_run_seq.outputs.failed || '0' }}
+          ERRORS_OUTPUT: ${{ steps.sgpu_run.outputs.errors }}
         run: |
           echo "## CRCR Nightly: RHEL 9.6 — Single-GPU Tests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -1094,9 +999,8 @@ for t in d.get("failed_tests", [])[:30]:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Nightly SHA | [\`${PYTORCH_SHA}\`](https://github.com/pytorch/pytorch/commit/${PYTORCH_SHA}) |" >> $GITHUB_STEP_SUMMARY
           echo "| GPUs | ${{ steps.gpu_check.outputs.gpu_count }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Runner | \`tto\` (critical) / sequential (other tiers) |" >> $GITHUB_STEP_SUMMARY
-          FAILED="${FAILED_OUT}"
-          echo "| Passed | ${PASSED_OUT} |" >> $GITHUB_STEP_SUMMARY
+          FAILED="${{ steps.sgpu_run.outputs.failed || '0' }}"
+          echo "| Passed | ${{ steps.sgpu_run.outputs.passed || '—' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.gpu_check.outputs.gpu_available }}" != "true" ]; then
             echo "| Result | \`skipped (no GPU)\` |" >> $GITHUB_STEP_SUMMARY
@@ -1117,7 +1021,7 @@ for t in d.get("failed_tests", [])[:30]:
         id: conclusion
         if: always()
         env:
-          FAILED: ${{ steps.sgpu_run.outputs.failed || steps.sgpu_run_seq.outputs.failed }}
+          FAILED: ${{ steps.sgpu_run.outputs.failed }}
         run: |
           if [ -n "$FAILED" ] && [ "$FAILED" != "0" ]; then
             echo "value=failure" >> "$GITHUB_OUTPUT"
