@@ -19,6 +19,18 @@ jobs:
     name: "Process external CI result"
     runs-on: ubuntu-latest
     steps:
+      - name: Prepare partner workflow link
+        id: partner-workflow
+        env:
+          SOURCE_REPO: ${{ github.event.client_payload.relay.source_repo }}
+          RUN_ID: ${{ github.event.client_payload.result.run_id }}
+        run: |
+          if [[ "$SOURCE_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] && [[ "$RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "url=https://github.com/${SOURCE_REPO}/actions/runs/${RUN_ID}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Partner result did not include a usable GitHub Actions run link"
+          fi
+
       - name: Display received results
         env:
           SOURCE_REPO: ${{ github.event.client_payload.relay.source_repo }}
@@ -30,6 +42,7 @@ jobs:
           WORKFLOW_NAME: ${{ github.event.client_payload.result.workflow_name }}
           RUN_ID: ${{ github.event.client_payload.result.run_id }}
           RUN_ATTEMPT: ${{ github.event.client_payload.result.run_attempt }}
+          PARTNER_WORKFLOW_URL: ${{ steps.partner-workflow.outputs.url }}
           FORWARD_TO_HUD: ${{ github.event.client_payload.relay.forward_to_hud || false }}
           FULL_PAYLOAD: ${{ toJson(github.event.client_payload) }}
         run: |
@@ -46,6 +59,7 @@ jobs:
           echo "Workflow:       ${WORKFLOW_NAME}"
           echo "Run ID:         ${RUN_ID}"
           echo "Run Attempt:    ${RUN_ATTEMPT}"
+          echo "Partner Run:    ${PARTNER_WORKFLOW_URL:-unavailable}"
           echo "Forward to HUD: ${FORWARD_TO_HUD}"
           echo ""
           echo "--- Full Payload ---"
@@ -62,6 +76,11 @@ jobs:
           echo "| Job Name | \`${JOB_NAME}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Status | \`${STATUS}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Conclusion | \`${CONCLUSION}\` |" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$PARTNER_WORKFLOW_URL" ]; then
+            echo "| Partner Run | [Open workflow run](${PARTNER_WORKFLOW_URL}) |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Partner Run | unavailable |" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "| Forward to HUD | \`${FORWARD_TO_HUD}\` |" >> $GITHUB_STEP_SUMMARY
 
       - name: Validate required fields
@@ -93,6 +112,7 @@ jobs:
           delivery-id: ${{ github.event.client_payload.result.delivery_id }}
           event-type: ${{ github.event.client_payload.result.event_type }}
           job-name: ${{ github.event.client_payload.result.job_name }}
+          artifact-url: ${{ steps.partner-workflow.outputs.url }}
 
       - name: HUD push status
         env:
