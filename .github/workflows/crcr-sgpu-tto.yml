@@ -259,23 +259,23 @@ jobs:
             fail_infra "Missing summary.json after TTO_EXIT=${TTO_EXIT}. Treating as infrastructure failure."
           else
             PARSE=$(python3 - "$SUMMARY" <<'PY'
-import json, sys
-path = sys.argv[1]
-try:
-    d = json.load(open(path))
-except Exception as e:
-    print("PARSE_ERROR", e)
-    sys.exit(2)
-passed = int(d.get("passed", 0) or 0)
-failed = int(d.get("failed", 0) or 0)
-errors = int(d.get("errors", 0) or 0)
-total = int(d.get("total_tests", passed + failed + errors + int(d.get("skipped", 0) or 0)))
-print(f"PASSED={passed}")
-print(f"XML_FAILED={failed + errors}")
-print(f"TOTAL={total}")
-for t in (d.get("failed_tests") or [])[:30]:
-    print("FAIL_LINE: %s.%s" % (t.get("classname", ""), t.get("name", "")))
-PY
+          import json, sys
+          path = sys.argv[1]
+          try:
+              d = json.load(open(path))
+          except Exception as e:
+              print("PARSE_ERROR", e)
+              sys.exit(2)
+          passed = int(d.get("passed", 0) or 0)
+          failed = int(d.get("failed", 0) or 0)
+          errors = int(d.get("errors", 0) or 0)
+          total = int(d.get("total_tests", passed + failed + errors + int(d.get("skipped", 0) or 0)))
+          print(f"PASSED={passed}")
+          print(f"XML_FAILED={failed + errors}")
+          print(f"TOTAL={total}")
+          for t in (d.get("failed_tests") or [])[:30]:
+              print("FAIL_LINE: %s.%s" % (t.get("classname", ""), t.get("name", "")))
+          PY
             )
             PARSE_RC=$?
             if [ "$PARSE_RC" -ne 0 ] || echo "$PARSE" | grep -q '^PARSE_ERROR'; then
