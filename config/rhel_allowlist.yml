@@ -5,5 +5,7 @@ allowed_repos:
     forward_to_hud: true
   - repo: torch-spyre/torch-spyre
     forward_to_hud: true
+  - repo: PowerTorchCI/pytorch-power-backend
+    forward_to_hud: false
   # - repo: partner-org/partner-repo
   #   forward_to_hud: false
