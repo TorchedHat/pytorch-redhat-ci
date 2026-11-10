@@ -1,6 +1,9 @@
 name: "Validation: RHEL 9.8 + CUDA 13.2"
 
 on:
+  push:
+    branches:
+      - rhel98-cuda132-validation
   workflow_dispatch:
     inputs:
       pytorch_sha:
