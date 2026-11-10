@@ -96,12 +96,7 @@ jobs:
             nvcc --version | grep -F "release 13.2"
             source /miniconda/etc/profile.d/conda.sh
             conda activate cuda_torch_build
-            python -c "
-            import torch
-            assert torch.version.cuda is not None
-            assert torch.version.cuda.startswith(\"13.2\"), torch.version.cuda
-            print(f\"PyTorch {torch.__version__} imports with CUDA {torch.version.cuda}\")
-            "
+            python -c "import torch; cuda = torch.version.cuda; assert cuda is not None; assert cuda.startswith(\"13.2\"), cuda; print(f\"PyTorch {torch.__version__} imports with CUDA {cuda}\")"
           '
 
       - name: Run CPU smoke tests
