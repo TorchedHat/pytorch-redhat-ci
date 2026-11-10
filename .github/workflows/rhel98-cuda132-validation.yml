@@ -96,6 +96,7 @@ jobs:
             nvcc --version | grep -F "release 13.2"
             source /miniconda/etc/profile.d/conda.sh
             conda activate cuda_torch_build
+            cd /tmp
             python -c "import torch; cuda = torch.version.cuda; assert cuda is not None; assert cuda.startswith(\"13.2\"), cuda; print(f\"PyTorch {torch.__version__} imports with CUDA {cuda}\")"
           '
 
@@ -122,6 +123,7 @@ jobs:
           podman run --rm --device nvidia.com/gpu=all "${IMAGE_TAG}" bash -eu -c '
             source /miniconda/etc/profile.d/conda.sh
             conda activate cuda_torch_build
+            cd /tmp
             python -c "
             import torch
             assert torch.cuda.is_available()
