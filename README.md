@@ -28,13 +28,15 @@ pytorch/pytorch
 
 | Runner | OS | Accelerator | Status |
 |--------|-----|-------------|--------|
-| `linux.rhel96` | RHEL 9.6 | CUDA | Active |
+| `linux.rhel96` | RHEL 9.8 container | CUDA 13.2 | Active |
 | `linux.rhel96-rocm` | RHEL 9.6 | ROCm | Active (manual validation) |
-| `linux.rhel96-cpu` | RHEL 9.6 | CPU | Active nightly validation |
+| `linux.rhel96-cpu` | RHEL 9.8 container | CPU | Active nightly validation |
+
+`linux.rhel96` and `linux.rhel96-cpu` are retained self-hosted runner labels; the active nightly workflow sets the container OS explicitly.
 
 ## Workflows
 
-### `crcr-nightly.yml` — Nightly RHEL 9.6 Build & Test (Active)
+### `crcr-nightly.yml` — Nightly RHEL 9.8 + CUDA 13.2 Build & Test (Active)
 
 Runs daily at 08:30 UTC via cron, or manually via `workflow_dispatch`.
 
@@ -71,20 +73,20 @@ Cron-triggered runs always execute all stages, force `podman --no-cache` for bot
 #### Build (`linux.rhel96`, 10h timeout)
 - Fetches the two most recent commits from `pytorch/pytorch`'s `nightly` branch
 - Extracts the **source `main` SHA** from the nightly release commit message (nightly commits embed the original `main` SHA in parentheses)
-- Builds PyTorch from source inside a RHEL 9.6 UBI container using `podman build`
+- Builds PyTorch from source inside a RHEL 9.8 UBI container with CUDA 13.2 using `podman build`
 - RHEL subscription credentials are passed via BuildKit `--secret` mounts (never appear in image layers or `docker history`)
-- Produces a tagged container image (`rhel9-pytorch-nightly:<sha>`) for downstream test jobs
+- Produces a tagged container image (`rhel9_8_cuda13_2-pytorch-nightly:<sha>`) for downstream test jobs
 - **Pushes to [Quay.io](https://quay.io/repository/aipcc/pytorch)** with a reproducible tag:
   ```
-  quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_cuda13_0
+  quay.io/aipcc/pytorch:rhel9_8_pytorch_nightly_main_git<7char_sha>_cuda13_2
   ```
-  Tag components: `rhel9_6` (OS), `nightly` (pipeline), `main` (PyTorch branch), `git<sha>` (commit), `cuda13_0` (CUDA version)
+  Tag components: `rhel9_8` (OS), `nightly` (pipeline), `main` (PyTorch branch), `git<sha>` (commit), `cuda13_2` (CUDA version)
 
 #### CPU Build (`linux.rhel96-cpu`, 10h timeout)
 
-- Starts in parallel with the CUDA build and uses `docker/Dockerfile.rhel9-cpu`.
+- Starts in parallel with the CUDA build, uses a RHEL 9.8 base image, and uses `docker/Dockerfile.rhel9-cpu`.
 - Produces a CPU-only image verified with `torch.version.cuda is None`.
-- Pushes the independent tag `quay.io/aipcc/pytorch:rhel9_6_pytorch_nightly_main_git<7char_sha>_cpu`.
+- Pushes the independent tag `quay.io/aipcc/pytorch:rhel9_8_pytorch_nightly_main_git<7char_sha>_cpu`.
 - A Quay upload failure is reported but does not fail the build job; downstream jobs reuse a local image when available.
 
 #### Test determination (`linux.rhel96-cpu` and `linux.rhel96`, 10h timeout)
@@ -188,12 +190,12 @@ Each job in the nightly pipeline sends a `completed` callback to the PyTorch CRC
 
 | Job | HUD `job-name` |
 |-----|----------------|
-| CUDA build | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / build` |
-| CPU build | `linux-rhel9.6-cpu-py3.12-x86_64 / build` |
-| CPU tests | `linux-rhel9.6-cpu-py3.12-x86_64 / test (cpu, linux.rhel96-cpu)` |
-| inductor-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)` |
-| sgpu-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96)` |
-| mgpu-tests | `linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96)` |
+| CUDA build | `linux-rhel9.8-cuda13.2-py3.12-gcc11-x86_64 / build` |
+| CPU build | `linux-rhel9.8-cpu-py3.12-x86_64 / build` |
+| CPU tests | `linux-rhel9.8-cpu-py3.12-x86_64 / test (cpu, linux.rhel96-cpu)` |
+| inductor-tests | `linux-rhel9.8-cuda13.2-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)` |
+| sgpu-tests | `linux-rhel9.8-cuda13.2-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96)` |
+| mgpu-tests | `linux-rhel9.8-cuda13.2-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96)` |
 
 GPU test jobs only report to CRCR when GPUs are actually available on the runner — skipped tests are not reported, avoiding misleading `success` entries on HUD.
 
@@ -268,7 +270,7 @@ To list critical tests for a category: `python scripts/test_config.py cpu --crit
   rhel96-build-test.yml.disabled # PR workflow (disabled)
 
 docker/
-  Dockerfile.rhel9              # RHEL 9.6 UBI build image (conda, CUDA, PyTorch from source)
+  Dockerfile.rhel9              # Active workflow builds RHEL 9.8 + CUDA 13.2 (conda, PyTorch from source)
   Dockerfile.rhel9-rocm         # RHEL 9.6 UBI build image (conda, ROCm, PyTorch from source)
 
 scripts/
