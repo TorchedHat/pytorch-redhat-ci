@@ -1,4 +1,4 @@
-name: "CRCR Nightly: RHEL 9.6 Build & Test"
+name: "CRCR Nightly: RHEL 9.8 + CUDA 13.2 Build & Test"
 
 on:
   schedule:
@@ -32,13 +32,15 @@ on:
         default: true
 
 run-name: >-
-  [Nightly] RHEL 9.6 @ ${{ github.event_name == 'schedule' && 'cron' || inputs.sha && 'manual-' || 'manual' }}${{ inputs.sha && format(' ({0})', inputs.sha) || '' }}${{ inputs.run_scope && inputs.run_scope != 'all' && format(' [{0}]', inputs.run_scope) || '' }}${{ (github.event_name == 'schedule' || inputs.no_cache) && ' [no cache]' || '' }}${{ github.event_name == 'workflow_dispatch' && !inputs.forward_to_hud && ' [HUD off]' || '' }}
+  [Nightly] RHEL 9.8 + CUDA 13.2 @ ${{ github.event_name == 'schedule' && 'cron' || inputs.sha && 'manual-' || 'manual' }}${{ inputs.sha && format(' ({0})', inputs.sha) || '' }}${{ inputs.run_scope && inputs.run_scope != 'all' && format(' [{0}]', inputs.run_scope) || '' }}${{ (github.event_name == 'schedule' || inputs.no_cache) && ' [no cache]' || '' }}${{ github.event_name == 'workflow_dispatch' && !inputs.forward_to_hud && ' [HUD off]' || '' }}
 
 env:
   UPSTREAM_REPO: pytorch/pytorch
   NIGHTLY_BRANCH: nightly
   QUAY_REGISTRY: quay.io/aipcc/pytorch
-  CUDA_VERSION: "13_0"
+  RHEL_OS_VERSION: "9.8"
+  CUDA_VERSION: "13-2"
+  CUDA_TAG: "13_2"
   # Test tier: "sanity", "critical", "full", or "delta"
   # delta = diff-based determination merged with critical tests
   TEST_TIER: "critical"
@@ -103,13 +105,13 @@ jobs:
 
           echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
           echo "prev_sha=$PREV_SOURCE_SHA" >> "$GITHUB_OUTPUT"
-          echo "cuda_image_tag=rhel9-pytorch-nightly:${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "cuda_quay_tag=${QUAY_REGISTRY}:rhel9_6_pytorch_nightly_main_git${SHORT_SHA}_cuda${CUDA_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "cpu_image_tag=rhel9-pytorch-nightly-cpu:${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "cpu_quay_tag=${QUAY_REGISTRY}:rhel9_6_pytorch_nightly_main_git${SHORT_SHA}_cpu" >> "$GITHUB_OUTPUT"
+          echo "cuda_image_tag=rhel9_8_cuda13_2-pytorch-nightly:${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "cuda_quay_tag=${QUAY_REGISTRY}:rhel9_8_pytorch_nightly_main_git${SHORT_SHA}_cuda${CUDA_TAG}" >> "$GITHUB_OUTPUT"
+          echo "cpu_image_tag=rhel9_8-pytorch-nightly-cpu:${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "cpu_quay_tag=${QUAY_REGISTRY}:rhel9_8_pytorch_nightly_main_git${SHORT_SHA}_cpu" >> "$GITHUB_OUTPUT"
 
   build:
-    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / build"
+    name: "linux-rhel9.8-cuda13.2-py3.12-gcc11-x86_64 / build"
     needs: resolve-source
     if: ${{ github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cuda' || inputs.run_scope == 'cuda-build-only' }}
     runs-on: linux.rhel96
@@ -155,7 +157,8 @@ jobs:
             --file docker/Dockerfile.rhel9 \
             --build-arg COMMIT_HASH="${PYTORCH_SHA}" \
             --build-arg ENABLE_SUBSCRIPTION=true \
-            --build-arg RHEL_OS_VERSION=9.6 \
+            --build-arg RHEL_OS_VERSION="${RHEL_OS_VERSION}" \
+            --build-arg CUDA_VERSION="${CUDA_VERSION}" \
             --secret id=subscription_key,src=/tmp/sub_key.txt \
             --secret id=subscription_org,src=/tmp/sub_org.txt \
             ${{ steps.sccache.outputs.volume_arg }} \
@@ -191,7 +194,7 @@ jobs:
           SCCACHE_CACHE_DIR: ${{ steps.sccache.outputs.cache_dir }}
           NO_CACHE: ${{ github.event_name == 'schedule' || inputs.no_cache }}
         run: |
-          echo "## CRCR Nightly: RHEL 9.6 — Build" >> $GITHUB_STEP_SUMMARY
+          echo "## CRCR Nightly: RHEL 9.8 + CUDA 13.2 — Build" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -220,10 +223,10 @@ jobs:
           conclusion: ${{ job.status }}
           delivery-id: ${{ needs.resolve-source.outputs.sha }}
           event-type: nightly
-          job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / build"
+          job-name: "linux-rhel9.8-cuda13.2-py3.12-gcc11-x86_64 / build"
 
   cpu-build:
-    name: "linux-rhel9.6-cpu-py3.12-x86_64 / build"
+    name: "linux-rhel9.8-cpu-py3.12-x86_64 / build"
     needs: resolve-source
     if: ${{ github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cpu' || inputs.run_scope == 'cpu-build-only' }}
     runs-on: linux.rhel96-cpu
@@ -266,8 +269,8 @@ jobs:
             --file docker/Dockerfile.rhel9-cpu
             --build-arg COMMIT_HASH="${PYTORCH_SHA}"
             --build-arg ENABLE_SUBSCRIPTION=true
-            --build-arg RHEL_OS_VERSION=9.6
-            --build-arg BUILD_ENVIRONMENT=linux-rhel9.6-cpu-py3.12
+            --build-arg RHEL_OS_VERSION="${RHEL_OS_VERSION}"
+            --build-arg BUILD_ENVIRONMENT=linux-rhel9.8-cpu-py3.12
             --secret id=subscription_key,src="${KEY_FILE}"
             --secret id=subscription_org,src="${ORG_FILE}"
           )
@@ -322,7 +325,7 @@ jobs:
           IMAGE_PUSHED: ${{ steps.image_publish.outputs.pushed }}
           NO_CACHE: ${{ github.event_name == 'schedule' || inputs.no_cache }}
         run: |
-          echo "## CRCR Nightly: RHEL 9.6 — CPU Build" >> "$GITHUB_STEP_SUMMARY"
+          echo "## CRCR Nightly: RHEL 9.8 — CPU Build" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Property | Value |" >> "$GITHUB_STEP_SUMMARY"
           echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
@@ -345,10 +348,10 @@ jobs:
           conclusion: ${{ job.status }}
           delivery-id: ${{ needs.resolve-source.outputs.sha }}
           event-type: nightly
-          job-name: "linux-rhel9.6-cpu-py3.12-x86_64 / build"
+          job-name: "linux-rhel9.8-cpu-py3.12-x86_64 / build"
 
   determine-cpu-tests:
-    name: "linux-rhel9.6-cpu-py3.12-x86_64 / determine-tests"
+    name: "linux-rhel9.8-cpu-py3.12-x86_64 / determine-tests"
     needs: cpu-build
     if: ${{ !cancelled() && needs.cpu-build.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cpu') }}
     runs-on: linux.rhel96-cpu
@@ -441,7 +444,7 @@ jobs:
           echo "| CPU tests | ${{ steps.resolve.outputs.count }} |" >> $GITHUB_STEP_SUMMARY
 
   determine-cuda-tests:
-    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / determine-tests"
+    name: "linux-rhel9.8-cuda13.2-py3.12-gcc11-x86_64 / determine-tests"
     needs: build
     if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cuda') }}
     runs-on: linux.rhel96
@@ -575,7 +578,7 @@ jobs:
           done
 
   cpu-tests:
-    name: "linux-rhel9.6-cpu-py3.12-x86_64 / test (cpu, linux.rhel96-cpu)"
+    name: "linux-rhel9.8-cpu-py3.12-x86_64 / test (cpu, linux.rhel96-cpu)"
     needs: [cpu-build, determine-cpu-tests]
     if: ${{ !cancelled() && needs.cpu-build.result == 'success' && needs.determine-cpu-tests.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cpu') }}
     runs-on: linux.rhel96-cpu
@@ -711,7 +714,7 @@ jobs:
         env:
           ERRORS_OUTPUT: ${{ steps.cpu_run.outputs.errors }}
         run: |
-          echo "## CRCR Nightly: RHEL 9.6 — CPU Tests" >> $GITHUB_STEP_SUMMARY
+          echo "## CRCR Nightly: RHEL 9.8 — CPU Tests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -755,11 +758,11 @@ jobs:
           conclusion: ${{ steps.conclusion.outputs.value }}
           delivery-id: ${{ needs.cpu-build.outputs.sha }}
           event-type: nightly
-          job-name: "linux-rhel9.6-cpu-py3.12-x86_64 / test (cpu, linux.rhel96-cpu)"
+          job-name: "linux-rhel9.8-cpu-py3.12-x86_64 / test (cpu, linux.rhel96-cpu)"
 
 
   inductor-tests:
-    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)"
+    name: "linux-rhel9.8-cuda13.2-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)"
     needs: [build, determine-cuda-tests]
     if: ${{ !cancelled() && needs.build.result == 'success' && needs.determine-cuda-tests.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cuda') }}
     runs-on: linux.rhel96
@@ -845,7 +848,7 @@ jobs:
         env:
           ERRORS_OUTPUT: ${{ steps.inductor_run.outputs.errors }}
         run: |
-          echo "## CRCR Nightly: RHEL 9.6 — Inductor Tests" >> $GITHUB_STEP_SUMMARY
+          echo "## CRCR Nightly: RHEL 9.8 + CUDA 13.2 — Inductor Tests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -887,11 +890,11 @@ jobs:
           conclusion: ${{ steps.conclusion.outputs.value }}
           delivery-id: ${{ needs.build.outputs.sha }}
           event-type: nightly
-          job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)"
+          job-name: "linux-rhel9.8-cuda13.2-py3.12-gcc11-x86_64 / test (inductor, linux.rhel96)"
 
 
   sgpu-tests:
-    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96)"
+    name: "linux-rhel9.8-cuda13.2-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96)"
     needs: [build, determine-cuda-tests, inductor-tests]
     if: ${{ !cancelled() && needs.build.result == 'success' && needs.determine-cuda-tests.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cuda') }}
     runs-on: linux.rhel96
@@ -993,7 +996,7 @@ jobs:
         env:
           ERRORS_OUTPUT: ${{ steps.sgpu_run.outputs.errors }}
         run: |
-          echo "## CRCR Nightly: RHEL 9.6 — Single-GPU Tests" >> $GITHUB_STEP_SUMMARY
+          echo "## CRCR Nightly: RHEL 9.8 + CUDA 13.2 — Single-GPU Tests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -1038,11 +1041,11 @@ jobs:
           conclusion: ${{ steps.conclusion.outputs.value }}
           delivery-id: ${{ needs.build.outputs.sha }}
           event-type: nightly
-          job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96)"
+          job-name: "linux-rhel9.8-cuda13.2-py3.12-gcc11-x86_64 / test (sgpu, linux.rhel96)"
 
 
   mgpu-tests:
-    name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96)"
+    name: "linux-rhel9.8-cuda13.2-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96)"
     needs: [build, determine-cuda-tests, sgpu-tests]
     if: ${{ !cancelled() && needs.build.result == 'success' && needs.determine-cuda-tests.result == 'success' && (github.event_name == 'schedule' || inputs.run_scope == 'all' || inputs.run_scope == 'cuda') }}
     runs-on: linux.rhel96
@@ -1153,7 +1156,7 @@ jobs:
         env:
           ERRORS_OUTPUT: ${{ steps.mgpu_run.outputs.errors }}
         run: |
-          echo "## CRCR Nightly: RHEL 9.6 — Multi-GPU Tests" >> $GITHUB_STEP_SUMMARY
+          echo "## CRCR Nightly: RHEL 9.8 + CUDA 13.2 — Multi-GPU Tests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -1198,4 +1201,4 @@ jobs:
           conclusion: ${{ steps.conclusion.outputs.value }}
           delivery-id: ${{ needs.build.outputs.sha }}
           event-type: nightly
-          job-name: "linux-rhel9.6-cuda13.0-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96)"
+          job-name: "linux-rhel9.8-cuda13.2-py3.12-gcc11-x86_64 / test (mgpu, linux.rhel96)"
