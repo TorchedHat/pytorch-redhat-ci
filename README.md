@@ -165,14 +165,6 @@ Shared behavior:
 - `CONTINUE_THROUGH_ERROR=True`; summaries report *completed with failures* (no hard job fail on suite failures)
 - **HUD/CRCR callbacks are disabled** (`PUSH_TO_HUD=false`) until the pipeline is manually validated
 
-### `rhel98-cuda132-validation.yml` — RHEL 9.8 + CUDA 13.2 Validation (Manual)
-
-An isolated, manual-only compatibility check that uses the existing runner to
-build PyTorch in a RHEL 9.8 container with CUDA 13.2. It validates the OS and
-toolkit versions, imports PyTorch, runs CPU smoke tests, and runs a CUDA tensor
-smoke test when an NVIDIA GPU is available. It does not send CRCR/HUD callbacks
-or change the production nightly workflow.
-
 ### `rhel96-build-test.yml` — PR Build & Sanity Tests (Disabled)
 
 Triggered by CRCR `repository_dispatch` (`pull_request` type). Currently disabled (`.disabled` suffix) while the nightly workflow is being stabilized. Will be re-enabled once nightly results are consistently stable.
