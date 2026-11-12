@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("ALLOWLIST_URL", "https://example.com/allowlist.yml")
 
+from allowlist import AllowlistUnavailableError
 from lambda_function import lambda_handler
 
 
@@ -51,6 +52,36 @@ class TestLambdaHandler(unittest.TestCase):
         event = _make_event(body=VALID_PAYLOAD)
         resp = lambda_handler(event, None)
         self.assertEqual(resp["statusCode"], 403)
+
+    def test_allowlist_unavailable_returns_service_unavailable(self):
+        with patch(
+            "lambda_function._verify_oidc_token",
+            return_value={"repository": "TorchedHat/pytorch-redhat-ci"},
+        ), patch(
+            "lambda_function.is_allowed",
+            side_effect=AllowlistUnavailableError("unavailable"),
+        ), patch("lambda_function._dispatch_to_receiver") as mock_dispatch:
+            resp = lambda_handler(_make_event(body=VALID_PAYLOAD), None)
+
+        self.assertEqual(resp["statusCode"], 503)
+        self.assertEqual(
+            json.loads(resp["body"]),
+            {"error": "Authorization service unavailable; retry later"},
+        )
+        mock_dispatch.assert_not_called()
+
+    def test_allowlist_failure_while_reading_policy_returns_service_unavailable(self):
+        with patch(
+            "lambda_function._verify_oidc_token",
+            return_value={"repository": "TorchedHat/pytorch-redhat-ci"},
+        ), patch("lambda_function.is_allowed", return_value=True), patch(
+            "lambda_function.should_forward_to_hud",
+            side_effect=AllowlistUnavailableError("unavailable"),
+        ), patch("lambda_function._dispatch_to_receiver") as mock_dispatch:
+            resp = lambda_handler(_make_event(body=VALID_PAYLOAD), None)
+
+        self.assertEqual(resp["statusCode"], 503)
+        mock_dispatch.assert_not_called()
 
     @patch("lambda_function._verify_oidc_token", return_value={})
     def test_no_repo_claim(self, _):

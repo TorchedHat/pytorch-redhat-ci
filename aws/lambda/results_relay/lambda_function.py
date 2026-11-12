@@ -5,7 +5,7 @@ import jwt
 import requests as http_requests
 from jwt import PyJWKClient
 
-from allowlist import is_allowed, should_forward_to_hud
+from allowlist import AllowlistUnavailableError, is_allowed, should_forward_to_hud
 from config import GITHUB_ISSUER, GITHUB_JWKS_URI, get_config
 
 logger = logging.getLogger()
@@ -119,7 +119,13 @@ def lambda_handler(event: dict, context: object) -> dict:
     if not source_repo:
         return _json_response(403, {"error": "No repository claim in token"})
 
-    if not is_allowed(source_repo, config.allowlist_url):
+    try:
+        allowed = is_allowed(source_repo, config.allowlist_url)
+    except AllowlistUnavailableError:
+        logger.exception("Could not load repository allowlist")
+        return _json_response(503, {"error": "Authorization service unavailable; retry later"})
+
+    if not allowed:
         logger.warning("Repo not in allowlist: %s", source_repo)
         return _json_response(403, {"error": "Repository not authorized"})
 
@@ -140,7 +146,11 @@ def lambda_handler(event: dict, context: object) -> dict:
         source_repo, payload.get("status"), payload.get("conclusion"),
     )
 
-    forward_to_hud = should_forward_to_hud(source_repo, config.allowlist_url)
+    try:
+        forward_to_hud = should_forward_to_hud(source_repo, config.allowlist_url)
+    except AllowlistUnavailableError:
+        logger.exception("Could not load repository allowlist")
+        return _json_response(503, {"error": "Authorization service unavailable; retry later"})
     if not _dispatch_to_receiver(payload, source_repo, forward_to_hud):
         return _json_response(502, {"error": "Failed to dispatch result"})
 

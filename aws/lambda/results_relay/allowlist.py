@@ -9,6 +9,10 @@ _cache_ts: float = 0.0
 _CACHE_TTL = 900  # 15 minutes
 
 
+class AllowlistUnavailableError(RuntimeError):
+    pass
+
+
 def _fetch_allowlist_yaml(url: str) -> str:
     resp = requests.get(url, timeout=10)
     resp.raise_for_status()
@@ -21,8 +25,11 @@ def _load_repo_policies(url: str) -> dict[str, bool]:
     if _cached_policies is not None and (now - _cache_ts) < _CACHE_TTL:
         return _cached_policies
 
-    raw = _fetch_allowlist_yaml(url)
-    data = yaml.safe_load(raw)
+    try:
+        raw = _fetch_allowlist_yaml(url)
+        data = yaml.safe_load(raw)
+    except (requests.RequestException, yaml.YAMLError) as error:
+        raise AllowlistUnavailableError("Could not load the repository allowlist") from error
     policies = {}
     if isinstance(data, dict):
         for entry in data.get("allowed_repos", []):

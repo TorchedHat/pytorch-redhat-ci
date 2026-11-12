@@ -1,7 +1,14 @@
 import unittest
 from unittest.mock import patch
 
-from allowlist import clear_cache, is_allowed, should_forward_to_hud
+import requests
+
+from allowlist import (
+    AllowlistUnavailableError,
+    clear_cache,
+    is_allowed,
+    should_forward_to_hud,
+)
 
 
 SAMPLE_YAML = """
@@ -50,6 +57,19 @@ class TestAllowlist(unittest.TestCase):
     @patch("allowlist._fetch_allowlist_yaml", return_value="not_a_dict: true")
     def test_bad_yaml_format(self, mock_fetch):
         self.assertFalse(is_allowed("foo/bar", "http://x"))
+
+    @patch(
+        "allowlist._fetch_allowlist_yaml",
+        side_effect=requests.RequestException("unavailable"),
+    )
+    def test_fetch_failure_is_distinct_from_an_unlisted_repository(self, mock_fetch):
+        with self.assertRaises(AllowlistUnavailableError):
+            is_allowed("foo/bar", "http://x")
+
+    @patch("allowlist._fetch_allowlist_yaml", return_value="[unterminated")
+    def test_invalid_yaml_is_reported_as_an_unavailable_allowlist(self, mock_fetch):
+        with self.assertRaises(AllowlistUnavailableError):
+            is_allowed("foo/bar", "http://x")
 
 
 if __name__ == "__main__":

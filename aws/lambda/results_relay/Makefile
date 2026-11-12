@@ -7,7 +7,7 @@ package: clean
 	@echo "Created deployment.zip"
 
 test:
-	python -m pytest tests/ -v
+	python -m unittest discover -s tests -v
 
 clean:
 	rm -rf build/ deployment.zip
