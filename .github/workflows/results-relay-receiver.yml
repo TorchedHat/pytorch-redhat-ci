@@ -24,11 +24,14 @@ jobs:
         env:
           SOURCE_REPO: ${{ github.event.client_payload.relay.source_repo }}
           RUN_ID: ${{ github.event.client_payload.result.run_id }}
+          ARTIFACT_URL: ${{ github.event.client_payload.result.artifact_url }}
         run: |
-          if [[ "$SOURCE_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] && [[ "$RUN_ID" =~ ^[0-9]+$ ]]; then
+          if [[ "$ARTIFACT_URL" =~ ^https://[^[:space:]]+$ ]]; then
+            echo "url=${ARTIFACT_URL}" >> "$GITHUB_OUTPUT"
+          elif [[ "$SOURCE_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] && [[ "$RUN_ID" =~ ^[0-9]+$ ]]; then
             echo "url=https://github.com/${SOURCE_REPO}/actions/runs/${RUN_ID}" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::Partner result did not include a usable GitHub Actions run link"
+            echo "::warning::Partner result did not include a usable artifact or GitHub Actions run link"
           fi
 
       - name: Display received results
