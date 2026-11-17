@@ -308,6 +308,25 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
           if [ "$FAILED" != "0" ]; then
+            print_tto_log() {
+              local log_file="$1"
+              [ -f "$log_file" ] || return 0
+              echo "::group::TTO diagnostic: ${log_file#${RUN_DIR}/}"
+              cat "$log_file"
+              echo "::endgroup::"
+            }
+
+            print_tto_log "$LOG"
+            print_tto_log "$SUMMARY"
+            while IFS= read -r -d '' log_file; do
+              print_tto_log "$log_file"
+            done < <(
+              find "$RUN_DIR" -type f \( \
+                -name 'shard_*_gpu*.log' -o \
+                -path '*/per-test-logs/*.log' -o \
+                -path '*/merged-logs/*.log' \
+              \) -print0 | sort -z
+            )
             exit 1
           fi
 
