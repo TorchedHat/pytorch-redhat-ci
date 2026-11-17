@@ -226,7 +226,10 @@ jobs:
             -v "${RUN_DIR}:/opt/tto-logs:z" \
             "${IMAGE_TAG}" bash -c '
             source /miniconda/etc/profile.d/conda.sh && conda activate cuda_torch_build
-            pip install -e /opt/torch-test-optimizer
+            TTO_INSTALL_DIR=$(mktemp -d)
+            trap "rm -rf \"${TTO_INSTALL_DIR}\"" EXIT
+            cp -R /opt/torch-test-optimizer/. "${TTO_INSTALL_DIR}/"
+            pip install -e "${TTO_INSTALL_DIR}"
             cd /pytorch
             set +e
             tto --pytorch-root /pytorch \
