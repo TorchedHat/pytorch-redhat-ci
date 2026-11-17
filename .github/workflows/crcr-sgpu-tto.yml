@@ -234,7 +234,7 @@ jobs:
               echo "Expected TTO option was not found in ${TTO_RUNNER}"
               exit 1
             fi
-            sed -i 's/, "--exclude-jit-executor"//g' "${TTO_RUNNER}"
+            sed -i "s/, \"--exclude-jit-executor\"//g" "${TTO_RUNNER}"
             pip install -e "${TTO_INSTALL_DIR}"
             cd /pytorch
             set +e
