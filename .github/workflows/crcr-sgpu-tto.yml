@@ -229,6 +229,12 @@ jobs:
             TTO_INSTALL_DIR=$(mktemp -d)
             trap "rm -rf \"${TTO_INSTALL_DIR}\"" EXIT
             cp -R /opt/torch-test-optimizer/. "${TTO_INSTALL_DIR}/"
+            TTO_RUNNER="${TTO_INSTALL_DIR}/src/torch_test_optimizer/runner.py"
+            if ! grep -q -- "--exclude-jit-executor" "${TTO_RUNNER}"; then
+              echo "Expected TTO option was not found in ${TTO_RUNNER}"
+              exit 1
+            fi
+            sed -i 's/, "--exclude-jit-executor"//g' "${TTO_RUNNER}"
             pip install -e "${TTO_INSTALL_DIR}"
             cd /pytorch
             set +e
