@@ -5,8 +5,8 @@ allowed_repos:
     forward_to_hud: true
   - repo: torch-spyre/torch-spyre
     forward_to_hud: true
-  # Receive POWER callbacks while its nightly provenance contract is corrected.
+  # Power nightly provenance has been validated against the relay contract.
   - repo: PowerTorchCI/pytorch-power-backend
-    forward_to_hud: false
+    forward_to_hud: true
   # - repo: partner-org/partner-repo
   #   forward_to_hud: false
