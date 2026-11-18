@@ -19,6 +19,39 @@ jobs:
     name: "Process external CI result"
     runs-on: ubuntu-latest
     steps:
+      - name: Validate partner result
+        id: validate
+        env:
+          SOURCE_REPO: ${{ github.event.client_payload.relay.source_repo }}
+          DELIVERY_ID: ${{ github.event.client_payload.result.delivery_id }}
+          EVENT_TYPE: ${{ github.event.client_payload.result.event_type }}
+          JOB_NAME: ${{ github.event.client_payload.result.job_name }}
+          STATUS: ${{ github.event.client_payload.result.status }}
+          CONCLUSION: ${{ github.event.client_payload.result.conclusion }}
+          RUN_ID: ${{ github.event.client_payload.result.run_id }}
+          RUN_ATTEMPT: ${{ github.event.client_payload.result.run_attempt }}
+          ARTIFACT_URL: ${{ github.event.client_payload.result.artifact_url }}
+        run: |
+          set -euo pipefail
+
+          errors=()
+          [[ "$SOURCE_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || errors+=("source_repo must be an owner/repository name")
+          [[ "$DELIVERY_ID" =~ ^[a-f0-9]{40}$ ]] || errors+=("delivery_id must be the tested 40-character PyTorch SHA")
+          [[ "$EVENT_TYPE" == "nightly" || "$EVENT_TYPE" == "periodic" ]] || errors+=("event_type must be nightly or periodic")
+          [[ "$STATUS" == "completed" ]] || errors+=("status must be completed")
+          [[ "$CONCLUSION" =~ ^(success|failure|neutral|cancelled|skipped|timed_out|action_required|stale)$ ]] || errors+=("conclusion is not a supported terminal value")
+          [[ "$JOB_NAME" =~ [^[:space:]] && "$JOB_NAME" != *$'\n'* && "$JOB_NAME" != *$'\r'* ]] || errors+=("job_name must be non-empty and single-line")
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]] || errors+=("run_id must be a positive integer")
+          [[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] || errors+=("run_attempt must be a positive integer")
+          [[ -z "$ARTIFACT_URL" || "$ARTIFACT_URL" =~ ^https://[^[:space:]]+$ ]] || errors+=("artifact_url must be an HTTPS URL when supplied")
+
+          if [ "${#errors[@]}" -gt 0 ]; then
+            printf '::error::Invalid partner result: %s\n' "${errors[*]}"
+            exit 1
+          fi
+
+          echo "valid=true" >> "$GITHUB_OUTPUT"
+
       - name: Prepare partner workflow link
         id: partner-workflow
         env:
@@ -47,7 +80,6 @@ jobs:
           RUN_ATTEMPT: ${{ github.event.client_payload.result.run_attempt }}
           PARTNER_WORKFLOW_URL: ${{ steps.partner-workflow.outputs.url }}
           FORWARD_TO_HUD: ${{ github.event.client_payload.relay.forward_to_hud || false }}
-          FULL_PAYLOAD: ${{ toJson(github.event.client_payload) }}
         run: |
           echo "============================================"
           echo "  External CI Result Received"
@@ -64,9 +96,6 @@ jobs:
           echo "Run Attempt:    ${RUN_ATTEMPT}"
           echo "Partner Run:    ${PARTNER_WORKFLOW_URL:-unavailable}"
           echo "Forward to HUD: ${FORWARD_TO_HUD}"
-          echo ""
-          echo "--- Full Payload ---"
-          echo "${FULL_PAYLOAD}" | python3 -m json.tool 2>/dev/null || echo "${FULL_PAYLOAD}"
           echo ""
 
           echo "## External CI Result" >> $GITHUB_STEP_SUMMARY
@@ -85,26 +114,6 @@ jobs:
             echo "| Partner Run | unavailable |" >> $GITHUB_STEP_SUMMARY
           fi
           echo "| Forward to HUD | \`${FORWARD_TO_HUD}\` |" >> $GITHUB_STEP_SUMMARY
-
-      - name: Validate required fields
-        id: validate
-        env:
-          DELIVERY_ID: ${{ github.event.client_payload.result.delivery_id }}
-          EVENT_TYPE: ${{ github.event.client_payload.result.event_type }}
-          JOB_NAME: ${{ github.event.client_payload.result.job_name }}
-          CONCLUSION: ${{ github.event.client_payload.result.conclusion }}
-        run: |
-          MISSING=""
-          [ -z "$DELIVERY_ID" ] && MISSING="${MISSING} delivery_id"
-          [ -z "$EVENT_TYPE" ] && MISSING="${MISSING} event_type"
-          [ -z "$JOB_NAME" ] && MISSING="${MISSING} job_name"
-          [ -z "$CONCLUSION" ] && MISSING="${MISSING} conclusion"
-          if [ -n "$MISSING" ]; then
-            echo "::error::Missing required fields:${MISSING}"
-            echo "valid=false" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-          echo "valid=true" >> "$GITHUB_OUTPUT"
 
       - name: Forward to CRCR/HUD
         if: github.event.client_payload.relay.forward_to_hud == true && steps.validate.outputs.valid == 'true'
